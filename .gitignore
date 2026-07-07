@@ -1,0 +1,60 @@
+# Built application files
+*.apk
+*.aar
+*.ap_
+*.aab
+
+# Files for the ART/Dalvik VM
+*.dex
+
+# Java class files
+*.class
+
+# Generated files
+bin/
+gen/
+out/
+release/
+
+# Gradle files
+.gradle/
+build/
+gradle-app.setting
+.gradletasknamecache
+
+# Local configuration file (sdk path, etc)
+local.properties
+
+# IntelliJ IDEA/JetBrains
+*.iml
+.idea/
+misc.xml
+deploymentTargetDropDown.xml
+render.exciting.xml
+
+# Android Studio captures
+/captures/
+.externalNativeBuild/
+.cxx/
+
+# Keystore files
+*.jks
+*.keystore
+
+# Google Services (e.g. APIs or Firebase)
+google-services.json
+
+# Android Profiling
+*.hprof
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Local APK output
+/app/build/
+/app/release/
+/app/debug/
+
+# Settings local to this Claude Code environment
+.claude/settings.local.json
