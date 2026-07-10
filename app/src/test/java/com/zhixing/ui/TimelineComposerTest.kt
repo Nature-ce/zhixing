@@ -2,6 +2,7 @@ package com.zhixing.ui
 
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.Test
+import java.util.TimeZone
 
 /**
  * TimelineComposer 的纯逻辑单元测试。
@@ -87,13 +88,22 @@ class TimelineComposerTest {
     @Test
     fun formatCompletedDate_returns_yyyy_mm_dd_hh_mm() {
         // 1970-01-02 00:00:00 UTC = 86400 * 1000 ms
-        assertThat(formatCompletedDate(86_400_000L)).isEqualTo("1970-01-02 00:00")
+        assertThat(formatCompletedDate(86_400_000L, TimeZone.getTimeZone("UTC")))
+            .isEqualTo("1970-01-02 00:00")
     }
 
     @Test
     fun formatCompletedDate_includes_nonzero_hour_and_minute() {
         // 1970-01-02 03:25:00 UTC = (86400 + 12300) * 1000 ms
-        assertThat(formatCompletedDate(98_745_000L)).isEqualTo("1970-01-02 03:25")
+        assertThat(formatCompletedDate(98_745_000L, TimeZone.getTimeZone("UTC")))
+            .isEqualTo("1970-01-02 03:25")
+    }
+
+    @Test
+    fun formatCompletedDate_applies_provided_timezone_offset() {
+        // 同一时刻（86_400_000L = 1970-01-02 00:00:00 UTC），在 UTC+8 应显示 08:00
+        assertThat(formatCompletedDate(86_400_000L, TimeZone.getTimeZone("GMT+8")))
+            .isEqualTo("1970-01-02 08:00")
     }
 
     private fun sub(

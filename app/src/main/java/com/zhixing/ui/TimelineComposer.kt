@@ -73,11 +73,12 @@ object TimelineComposer {
 }
 
 /**
- * 将 epoch 毫秒按 UTC 格式化为 "yyyy-MM-dd HH:mm"。
- * 抽为纯函数便于 JVM 单元测试。
+ * 将 epoch 毫秒按给定时区格式化为 "yyyy-MM-dd HH:mm"。
+ * 默认使用本地时区，让显示时间对用户"所见即所得"。
+ * 抽为纯函数便于 JVM 单元测试（可注入固定时区保证确定性）。
  */
-fun formatCompletedDate(millis: Long): String {
-    val cal = Calendar.getInstance(TimeZone.getTimeZone("UTC"))
+fun formatCompletedDate(millis: Long, timeZone: TimeZone = TimeZone.getDefault()): String {
+    val cal = Calendar.getInstance(timeZone)
     cal.timeInMillis = millis
     return "%04d-%02d-%02d %02d:%02d".format(
         cal.get(Calendar.YEAR),
