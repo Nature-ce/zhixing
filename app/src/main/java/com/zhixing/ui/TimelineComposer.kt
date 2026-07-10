@@ -73,15 +73,17 @@ object TimelineComposer {
 }
 
 /**
- * 将 epoch 毫秒按 UTC 格式化为 "yyyy-MM-dd"。
+ * 将 epoch 毫秒按 UTC 格式化为 "yyyy-MM-dd HH:mm"。
  * 抽为纯函数便于 JVM 单元测试。
  */
 fun formatCompletedDate(millis: Long): String {
     val cal = Calendar.getInstance(TimeZone.getTimeZone("UTC"))
     cal.timeInMillis = millis
-    return "%04d-%02d-%02d".format(
+    return "%04d-%02d-%02d %02d:%02d".format(
         cal.get(Calendar.YEAR),
         cal.get(Calendar.MONTH) + 1,
         cal.get(Calendar.DAY_OF_MONTH),
+        cal.get(Calendar.HOUR_OF_DAY),
+        cal.get(Calendar.MINUTE),
     )
 }

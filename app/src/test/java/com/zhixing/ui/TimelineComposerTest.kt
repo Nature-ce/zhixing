@@ -85,9 +85,15 @@ class TimelineComposerTest {
     }
 
     @Test
-    fun formatCompletedDate_returns_yyyy_mm_dd() {
+    fun formatCompletedDate_returns_yyyy_mm_dd_hh_mm() {
         // 1970-01-02 00:00:00 UTC = 86400 * 1000 ms
-        assertThat(formatCompletedDate(86_400_000L)).isEqualTo("1970-01-02")
+        assertThat(formatCompletedDate(86_400_000L)).isEqualTo("1970-01-02 00:00")
+    }
+
+    @Test
+    fun formatCompletedDate_includes_nonzero_hour_and_minute() {
+        // 1970-01-02 03:25:00 UTC = (86400 + 12300) * 1000 ms
+        assertThat(formatCompletedDate(98_745_000L)).isEqualTo("1970-01-02 03:25")
     }
 
     private fun sub(
