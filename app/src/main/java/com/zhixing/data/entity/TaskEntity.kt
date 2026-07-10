@@ -15,4 +15,5 @@ data class TaskEntity(
     val targetCompletionDate: String? = null,
     val createdAt: Long = 0L,
     val completedAt: Long? = null,
+    val reviewText: String = "",
 )

@@ -1,0 +1,192 @@
+package com.zhixing.ui
+
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTouchInput
+import com.zhixing.ui.theme.ZhixingTheme
+import org.assertj.core.api.Assertions.assertThat
+import org.junit.Rule
+import org.junit.Test
+import java.util.concurrent.atomic.AtomicReference
+
+/**
+ * instrumented 测试：周视图拖放排期的 UI 结构。
+ *
+ * 验证：
+ *   - backlog 子项目渲染为 drag source（testTag "BacklogItem-${id}"）
+ *   - 7 天列渲染为 drop target（testTag "WeekDay-${date}"）
+ *   - 拖放后回调 onScheduleSubproject 被调用（日期由落列决定，时间由落点决定）
+ */
+class WeekScheduleDragDropTest {
+
+    @get:Rule
+    val composeRule = createComposeRule()
+
+    @Test
+    fun backlog_items_render_as_drag_sources() {
+        val backlog = listOf(
+            BacklogItem(id = 1, title = "选书目"),
+            BacklogItem(id = 2, title = "划重点"),
+        )
+
+        composeRule.setContent {
+            ZhixingTheme {
+                WeekSchedulePage(
+                    weekDates = listOf("2026-07-06", "2026-07-07", "2026-07-08", "2026-07-09", "2026-07-10", "2026-07-11", "2026-07-12"),
+                    itemsByDate = emptyMap(),
+                    backlogItems = backlog,
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("BacklogItem-1", useUnmergedTree = true).assertIsDisplayed()
+        composeRule.onNodeWithTag("BacklogItem-2", useUnmergedTree = true).assertIsDisplayed()
+    }
+
+    @Test
+    fun day_columns_render_as_drop_targets() {
+        composeRule.setContent {
+            ZhixingTheme {
+                WeekSchedulePage(
+                    weekDates = listOf("2026-07-06", "2026-07-07", "2026-07-08", "2026-07-09", "2026-07-10", "2026-07-11", "2026-07-12"),
+                    itemsByDate = emptyMap(),
+                    backlogItems = listOf(BacklogItem(id = 1, title = "选书目")),
+                )
+            }
+        }
+
+        // 7 天列都渲染为 drop target
+        listOf("2026-07-06", "2026-07-07", "2026-07-08", "2026-07-09", "2026-07-10", "2026-07-11", "2026-07-12").forEach { date ->
+            composeRule.onNodeWithTag("WeekDay-$date", useUnmergedTree = true).assertExists()
+        }
+    }
+
+    @Test
+    fun longPressDrag_fromBacklogIntoDayColumn_schedulesAtCorrectDateAndTime() {
+        // 捕获回调参数：Quad<subprojectId, date, start, end>
+        val captured = AtomicReference<Quad<Long, String, Int, Int>?>(null)
+
+        composeRule.setContent {
+            ZhixingTheme {
+                WeekSchedulePage(
+                    weekDates = listOf("2026-07-06", "2026-07-07", "2026-07-08", "2026-07-09", "2026-07-10", "2026-07-11", "2026-07-12"),
+                    itemsByDate = emptyMap(),
+                    backlogItems = listOf(
+                        BacklogItem(id = 1, title = "选书目", estimatedDuration = 60),
+                    ),
+                    onScheduleSubproject = { id, date, start, end ->
+                        captured.set(Quad(id, date, start, end))
+                    },
+                )
+            }
+        }
+
+        composeRule.waitForIdle()
+
+        // 目标：2026-07-09 列（index 3），第 6 行 = 09:00 = 540。
+        // 注意：目标列在屏幕外，其 boundsInRoot 不可靠。
+        // 列索引法下，落点 x = 首列 left + index × colWidth + colWidth/2，
+        // 故取一个落在第 3 列内的 root x 即可：首列 left + (3 + 0.5) × colWidth。
+        val targetDate = "2026-07-09"
+        val firstDayColumn = composeRule.onNodeWithTag("WeekDay-2026-07-06", useUnmergedTree = true)
+            .fetchSemanticsNode()
+        val colWidthPx = firstDayColumn.size.width.toFloat()
+        val firstColLeft = firstDayColumn.boundsInRoot.left
+        val colTop = firstDayColumn.boundsInRoot.top
+        val rowHeightPx = firstDayColumn.size.height / 34f
+        val targetRootY = colTop + 6 * rowHeightPx
+        // 第 3 列中心 root x
+        val targetRootX = firstColLeft + (3 + 0.5f) * colWidthPx
+
+        // backlog 节点顶部/左侧在 root 中的位置（用于把 root 目标坐标转成节点本地坐标）
+        val backlogNode = composeRule.onNodeWithTag("BacklogItem-1", useUnmergedTree = true)
+            .fetchSemanticsNode()
+        val backlogRootTop = backlogNode.boundsInRoot.top
+        val backlogRootLeft = backlogNode.boundsInRoot.left
+        val localTargetY = targetRootY - backlogRootTop
+        val localTargetX = targetRootX - backlogRootLeft
+
+        // 模拟 long-press-drag：按下 → 移动到目标列/行 → 释放（delayMillis 触发长按）
+        composeRule.onNodeWithTag("BacklogItem-1", useUnmergedTree = true).performTouchInput {
+            down(center)
+            moveTo(Offset(localTargetX, localTargetY), delayMillis = 800L)
+            up()
+        }
+
+        composeRule.waitForIdle()
+
+        val result = captured.get()
+        assertThat(result).isNotNull
+        assertThat(result!!.first).isEqualTo(1L)
+        assertThat(result.second).isEqualTo(targetDate)
+        // 落在第 6 行 → 09:00 = 540，时长 60 → end = 600
+        assertThat(result.third).isEqualTo(540)
+        assertThat(result.fourth).isEqualTo(600)
+    }
+
+    /**
+     * 先横向滚动把目标列滚到可见，再拖放 → 应命中该列。
+     *
+     * 目标：把 2026-07-09（原屏幕外）滚到可见后，拖放到它的第 6 行，
+     * 回调应携带日期 2026-07-09 + 时间段 540/600。
+     */
+    @Test
+    fun longPressDrag_afterHorizontalScroll_snapsToScrolledColumn() {
+        val captured = AtomicReference<Quad<Long, String, Int, Int>?>(null)
+
+        composeRule.setContent {
+            ZhixingTheme {
+                WeekSchedulePage(
+                    weekDates = listOf("2026-07-06", "2026-07-07", "2026-07-08", "2026-07-09", "2026-07-10", "2026-07-11", "2026-07-12"),
+                    itemsByDate = emptyMap(),
+                    backlogItems = listOf(
+                        BacklogItem(id = 1, title = "选书目", estimatedDuration = 60),
+                    ),
+                    onScheduleSubproject = { id, date, start, end ->
+                        captured.set(Quad(id, date, start, end))
+                    },
+                )
+            }
+        }
+
+        composeRule.waitForIdle()
+
+        // 把目标列滚到可见（触发横向滚动）。
+        val targetDate = "2026-07-09"
+        composeRule.onNodeWithTag("WeekDay-$targetDate").performScrollTo()
+        composeRule.waitForIdle()
+
+        // 滚动后目标列可见，其 boundsInRoot 可靠。
+        val dayColumn = composeRule.onNodeWithTag("WeekDay-$targetDate", useUnmergedTree = true)
+            .fetchSemanticsNode()
+        val colTop = dayColumn.boundsInRoot.top
+        val rowHeightPx = dayColumn.size.height / 34f
+        val targetRootY = colTop + 6 * rowHeightPx
+        val targetRootX = dayColumn.boundsInRoot.left + dayColumn.size.width / 2f
+
+        val backlogNode = composeRule.onNodeWithTag("BacklogItem-1", useUnmergedTree = true)
+            .fetchSemanticsNode()
+        val localTargetY = targetRootY - backlogNode.boundsInRoot.top
+        val localTargetX = targetRootX - backlogNode.boundsInRoot.left
+
+        composeRule.onNodeWithTag("BacklogItem-1", useUnmergedTree = true).performTouchInput {
+            down(center)
+            moveTo(Offset(localTargetX, localTargetY), delayMillis = 800L)
+            up()
+        }
+
+        composeRule.waitForIdle()
+
+        val result = captured.get()
+        assertThat(result).isNotNull
+        assertThat(result!!.first).isEqualTo(1L)
+        assertThat(result.second).isEqualTo(targetDate)
+        assertThat(result.third).isEqualTo(540)
+        assertThat(result.fourth).isEqualTo(600)
+    }
+}
+
+private data class Quad<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)
