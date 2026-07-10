@@ -67,6 +67,60 @@ class DayScheduleDragDropTest {
         composeRule.onNodeWithTag("ScheduleDropTarget", useUnmergedTree = true).assertExists()
     }
 
+    /**
+     * 短延迟（300ms）长按即可激活拖拽排期。
+     *
+     * 300ms 短于系统默认长按超时（~500ms），若实现沿用默认超时则长按不会触发 → 拖拽无法激活 → 该测试失败。
+     * 把长按超时降到 200ms 后，300ms 足以触发 → 测试通过。
+     */
+    @Test
+    fun shortDelayLongPressDrag_schedulesAtDropRow() {
+        val captured = AtomicReference<Triple<Long, Int, Int>?>(null)
+
+        composeRule.setContent {
+            ZhixingTheme {
+                DaySchedulePage(
+                    date = "2026-07-09",
+                    scheduleItems = emptyList(),
+                    backlogItems = listOf(
+                        BacklogItem(id = 1, title = "选书目", estimatedDuration = 60),
+                    ),
+                    onScheduleSubproject = { id, start, end ->
+                        captured.set(Triple(id, start, end))
+                    },
+                )
+            }
+        }
+
+        composeRule.waitForIdle()
+
+        val gridNode = composeRule.onNodeWithTag("ScheduleDropTarget", useUnmergedTree = true)
+            .fetchSemanticsNode()
+        val gridTop = gridNode.boundsInRoot.top
+        val rowHeightPx = gridNode.size.height / 34f
+        val targetRootY = gridTop + 6 * rowHeightPx
+
+        val backlogNode = composeRule.onNodeWithTag("BacklogItem-1", useUnmergedTree = true)
+            .fetchSemanticsNode()
+        val backlogRootTop = backlogNode.boundsInRoot.top
+        val localTargetY = targetRootY - backlogRootTop
+
+        composeRule.onNodeWithTag("BacklogItem-1", useUnmergedTree = true).performTouchInput {
+            down(center)
+            moveTo(Offset(center.x, localTargetY), delayMillis = 300L)
+            up()
+        }
+
+        composeRule.waitForIdle()
+
+        val result = captured.get()
+        assertThat(result).isNotNull
+        assertThat(result!!.first).isEqualTo(1L)
+        // 落在第 6 行 → 09:00 = 540，时长 60 → end = 600
+        assertThat(result.second).isEqualTo(540)
+        assertThat(result.third).isEqualTo(600)
+    }
+
     @Test
     fun longPressDrag_fromBacklogIntoGrid_schedulesAtDropRow() {
         // 捕获回调参数
@@ -122,6 +176,42 @@ class DayScheduleDragDropTest {
         // 落在第 6 行 → 09:00 = 540，时长 60 → end = 600
         assertThat(result.second).isEqualTo(540)
         assertThat(result.third).isEqualTo(600)
+    }
+
+    @Test
+    fun dragBackToBacklog_cancelsSchedule() {
+        // 拖向格栅后再拖回 backlog 区域释放 → 不应排期。
+        val captured = AtomicReference<Triple<Long, Int, Int>?>(null)
+
+        composeRule.setContent {
+            ZhixingTheme {
+                DaySchedulePage(
+                    date = "2026-07-09",
+                    scheduleItems = emptyList(),
+                    backlogItems = listOf(
+                        BacklogItem(id = 1, title = "选书目", estimatedDuration = 60),
+                    ),
+                    onScheduleSubproject = { id, start, end ->
+                        captured.set(Triple(id, start, end))
+                    },
+                )
+            }
+        }
+
+        composeRule.waitForIdle()
+
+        // 长按拖起 → 向格栅方向移（负 localY，格栅在上方）→ 再拖回 backlog（正 localY，越过起点向下）→ 释放
+        composeRule.onNodeWithTag("BacklogItem-1", useUnmergedTree = true).performTouchInput {
+            down(center)
+            moveTo(Offset(center.x, center.y - 400f), delayMillis = 800L)
+            moveTo(Offset(center.x, center.y + 100f))
+            up()
+        }
+
+        composeRule.waitForIdle()
+
+        // 释放回 backlog 区域 → 不触发排期
+        assertThat(captured.get()).isNull()
     }
 
     /**

@@ -1,9 +1,13 @@
 package com.zhixing.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -15,6 +19,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Badge
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -86,6 +91,10 @@ fun WeekSchedulePage(
     var dragState by remember { mutableStateOf<DragState?>(null) }
     val backlogTops = remember { mutableStateMapOf<Long, Float>() }
     val backlogLefts = remember { mutableStateMapOf<Long, Float>() }
+    // Backlog 区域顶部在 root 中的 y 像素。释放到 backlog 区域内（fingerRootY >= backlogTopPx）
+    // 视为取消排期，避免依赖格栅坐标反算（gridTopPx 滚动后会过期，反算不可靠）。
+    var backlogTopPx by remember { mutableStateOf(0f) }
+    // 页面根容器（overlay 层）在 root 中的坐标，供 glimpse 把 root 像素转回容器本地。
     var containerTopPx by remember { mutableStateOf(0f) }
     var containerLeftPx by remember { mutableStateOf(0f) }
 
@@ -171,77 +180,62 @@ fun WeekSchedulePage(
                 }
             }
 
-            // 下部：Backlog 区（不参与网格滚动，始终可见，作为拖放的 drag source）
+            // 下部：Backlog 区（药丸流，不参与网格滚动，始终可见，作为拖放的 drag source）
             if (backlogItems.isNotEmpty()) {
-                Text(
-                    text = "Backlog",
-                    style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.padding(top = 16.dp, bottom = 8.dp),
-                )
-                Column(
-                    modifier = Modifier.testTag("BacklogSection"),
-                    verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(4.dp),
-                ) {
-                    backlogItems.forEach { backlogItem ->
-                        val isDragging = dragState?.subprojectId == backlogItem.id
-                        Text(
-                            text = backlogItem.title,
-                            style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier
-                                .testTag("BacklogItem-${backlogItem.id}")
-                                .onGloballyPositioned {
-                                    backlogTops[backlogItem.id] = it.boundsInRoot().top
-                                    backlogLefts[backlogItem.id] = it.boundsInRoot().left
-                                }
-                                .pointerInput(backlogItem.id) {
-                                    detectDragGesturesAfterLongPress(
-                                        onDragStart = {
-                                            dragState = DragState(
-                                                subprojectId = backlogItem.id,
-                                                fingerRootY = 0f,
-                                                fingerRootX = 0f,
-                                            )
-                                        },
-                                        onDrag = { change, _ ->
-                                            val itemTop = backlogTops[backlogItem.id] ?: return@detectDragGesturesAfterLongPress
-                                            val itemLeft = backlogLefts[backlogItem.id] ?: return@detectDragGesturesAfterLongPress
-                                            dragState = dragState?.copy(
-                                                fingerRootY = itemTop + change.position.y,
-                                                fingerRootX = itemLeft + change.position.x,
-                                            )
-                                        },
-                                        onDragEnd = {
-                                            val state = dragState
-                                            dragState = null
-                                            if (state != null) {
-                                                handleWeekGridDrop(
-                                                    subprojectId = state.subprojectId,
-                                                    fingerRootX = state.fingerRootX,
-                                                    fingerRootY = state.fingerRootY,
-                                                    gridTopPx = gridTopPx,
-                                                    gridContentLeftPx = gridContentLeftPx,
-                                                    columnWidthPx = columnWidthPx,
-                                                    horizontalScrollOffset = horizontalScrollState.value.toFloat(),
-                                                    verticalScrollOffset = verticalScrollState.value.toFloat(),
-                                                    gridHeightPx = gridHeightPx,
-                                                    grid = grid,
-                                                    rowHeightPx = rowHeightPx,
-                                                    backlogItems = backlogItems,
-                                                    weekDates = weekDates,
-                                                    onScheduleSubproject = onScheduleSubproject,
-                                                )
-                                            }
-                                        },
-                                        onDragCancel = {
-                                            dragState = null
-                                        },
-                                    )
-                                }
-                                .then(
-                                    if (isDragging) Modifier.alpha(0.4f) else Modifier,
-                                ),
+                LongPressDragArea {
+                  BacklogPillSection(
+                    backlogItems = backlogItems,
+                    dragState = dragState,
+                    onPillClick = { /* 周视图暂不开放点击排期菜单，保留扩展点 */ },
+                    onPillPositioned = { id, top, left ->
+                        backlogTops[id] = top
+                        backlogLefts[id] = left
+                    },
+                    onBacklogPositioned = { top -> backlogTopPx = top },
+                    onDragStart = { id ->
+                        dragState = DragState(
+                            subprojectId = id,
+                            fingerRootY = 0f,
+                            fingerRootX = 0f,
                         )
-                    }
+                    },
+                    onDrag = { change, id ->
+                        val top = backlogTops[id] ?: return@BacklogPillSection
+                        val left = backlogLefts[id] ?: return@BacklogPillSection
+                        dragState = dragState?.copy(
+                            fingerRootY = top + change.position.y,
+                            fingerRootX = left + change.position.x,
+                        )
+                    },
+                    onDragEnd = {
+                        val state = dragState
+                        dragState = null
+                        if (state != null) {
+                            // 释放回 backlog 区域 → 取消排期（不依赖格栅坐标反算，
+                            // 因 gridTopPx 滚动后会过期，反算结果不可靠）。
+                            if (backlogTopPx > 0f && state.fingerRootY >= backlogTopPx) {
+                                return@BacklogPillSection
+                            }
+                            handleWeekGridDrop(
+                                subprojectId = state.subprojectId,
+                                fingerRootX = state.fingerRootX,
+                                fingerRootY = state.fingerRootY,
+                                gridTopPx = gridTopPx,
+                                gridContentLeftPx = gridContentLeftPx,
+                                columnWidthPx = columnWidthPx,
+                                horizontalScrollOffset = horizontalScrollState.value.toFloat(),
+                                verticalScrollOffset = verticalScrollState.value.toFloat(),
+                                gridHeightPx = gridHeightPx,
+                                grid = grid,
+                                rowHeightPx = rowHeightPx,
+                                backlogItems = backlogItems,
+                                weekDates = weekDates,
+                                onScheduleSubproject = onScheduleSubproject,
+                            )
+                        }
+                    },
+                    onDragCancel = { dragState = null },
+                  )
                 }
             }
         }
@@ -385,4 +379,92 @@ private fun handleWeekGridDrop(
     val duration = backlogItem.estimatedDuration?.takeIf { it > 0 } ?: 30
     val slot = DropScheduleCalculator.slotFromDrop(yPx, rowHeightPx, grid, duration)
     onScheduleSubproject(subprojectId, date, slot.start, slot.end)
+}
+
+/**
+ * Backlog 药丸流面板（与日视图共用同一 UI 单元，迁移到周视图）。
+ *
+ * 顶部"待排期 N"徽章 + FlowRow 药丸列表。每个药丸同时支持：
+ *   - tap → onPillClick(id)
+ *   - long-press-drag → 通过 onDragStart/onDrag/onDragEnd 把子项目排到天格栅
+ *
+ * 药丸用 Surface 自定义而非 InputChip，以便 clickable 与 detectDragGesturesAfterLongPress
+ * 同链共存、由页面层统一处理两套手势。
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun BacklogPillSection(
+    backlogItems: List<BacklogItem>,
+    dragState: DragState?,
+    onPillClick: (Long) -> Unit,
+    onPillPositioned: (id: Long, top: Float, left: Float) -> Unit,
+    onBacklogPositioned: (top: Float) -> Unit,
+    onDragStart: (Long) -> Unit,
+    onDrag: (change: androidx.compose.ui.input.pointer.PointerInputChange, id: Long) -> Unit,
+    onDragEnd: () -> Unit,
+    onDragCancel: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("BacklogSection")
+            .onGloballyPositioned { onBacklogPositioned(it.boundsInRoot().top) },
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 16.dp, bottom = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("待排期", style = MaterialTheme.typography.titleMedium)
+            Badge { Text("${backlogItems.size}") }
+        }
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            backlogItems.forEach { backlogItem ->
+                val isDragging = dragState?.subprojectId == backlogItem.id
+                Surface(
+                    modifier = Modifier
+                        .testTag("BacklogItem-${backlogItem.id}")
+                        .onGloballyPositioned {
+                            onPillPositioned(
+                                backlogItem.id,
+                                it.boundsInRoot().top,
+                                it.boundsInRoot().left,
+                            )
+                        }
+                        .pointerInput(backlogItem.id) {
+                            detectDragGesturesAfterLongPress(
+                                onDragStart = { onDragStart(backlogItem.id) },
+                                onDrag = { change, _ -> onDrag(change, backlogItem.id) },
+                                onDragEnd = { onDragEnd() },
+                                onDragCancel = { onDragCancel() },
+                            )
+                        }
+                        .clickable { onPillClick(backlogItem.id) }
+                        .then(if (isDragging) Modifier.alpha(0.4f) else Modifier),
+                    shape = MaterialTheme.shapes.small,
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Text(
+                            text = backlogItem.title,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        backlogItem.estimatedDuration?.let { dur ->
+                            Text(
+                                text = "${dur}分",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
 }

@@ -4,6 +4,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTouchInput
 import com.zhixing.ui.theme.ZhixingTheme
@@ -62,6 +63,68 @@ class WeekScheduleDragDropTest {
         listOf("2026-07-06", "2026-07-07", "2026-07-08", "2026-07-09", "2026-07-10", "2026-07-11", "2026-07-12").forEach { date ->
             composeRule.onNodeWithTag("WeekDay-$date", useUnmergedTree = true).assertExists()
         }
+    }
+
+    @Test
+    fun backlog_rendersPillsWithHeaderAndBadge() {
+        val backlog = listOf(
+            BacklogItem(id = 1, title = "选书目", estimatedDuration = 60),
+            BacklogItem(id = 2, title = "划重点"),
+        )
+
+        composeRule.setContent {
+            ZhixingTheme {
+                WeekSchedulePage(
+                    weekDates = listOf("2026-07-06", "2026-07-07", "2026-07-08", "2026-07-09", "2026-07-10", "2026-07-11", "2026-07-12"),
+                    itemsByDate = emptyMap(),
+                    backlogItems = backlog,
+                )
+            }
+        }
+
+        // 标题 + 数量徽标
+        composeRule.onNodeWithText("待排期", useUnmergedTree = false).assertIsDisplayed()
+        composeRule.onNodeWithText("2", useUnmergedTree = true).assertIsDisplayed()
+        // 药丸标题
+        composeRule.onNodeWithText("选书目", useUnmergedTree = true).assertIsDisplayed()
+        composeRule.onNodeWithText("划重点", useUnmergedTree = true).assertIsDisplayed()
+        // 时长标签（药丸副标题）
+        composeRule.onNodeWithText("60分", useUnmergedTree = true).assertIsDisplayed()
+    }
+
+    @Test
+    fun dragBackToBacklog_cancelsSchedule() {
+        val captured = AtomicReference<Quad<Long, String, Int, Int>?>(null)
+
+        composeRule.setContent {
+            ZhixingTheme {
+                WeekSchedulePage(
+                    weekDates = listOf("2026-07-06", "2026-07-07", "2026-07-08", "2026-07-09", "2026-07-10", "2026-07-11", "2026-07-12"),
+                    itemsByDate = emptyMap(),
+                    backlogItems = listOf(
+                        BacklogItem(id = 1, title = "选书目", estimatedDuration = 60),
+                    ),
+                    onScheduleSubproject = { id, date, start, end ->
+                        captured.set(Quad(id, date, start, end))
+                    },
+                )
+            }
+        }
+
+        composeRule.waitForIdle()
+
+        // 长按拖起 → 向格栅方向移（负 localY，格栅在上方）→ 再拖回 backlog（正 localY，越过起点向下）→ 释放
+        composeRule.onNodeWithTag("BacklogItem-1", useUnmergedTree = true).performTouchInput {
+            down(center)
+            moveTo(Offset(center.x, center.y - 400f), delayMillis = 800L)
+            moveTo(Offset(center.x, center.y + 100f))
+            up()
+        }
+
+        composeRule.waitForIdle()
+
+        // 释放回 backlog 区域 → 不触发排期
+        assertThat(captured.get()).isNull()
     }
 
     @Test
