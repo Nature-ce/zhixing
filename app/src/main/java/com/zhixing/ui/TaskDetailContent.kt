@@ -30,9 +30,7 @@ import com.zhixing.data.entity.SubprojectEntity
 fun TaskDetailContent(
     taskTitle: String,
     subprojects: List<SubprojectEntity>,
-    onSubprojectClick: (Long) -> Unit,
-    onScheduleClick: (Long) -> Unit = {},
-    onAbandonClick: (Long) -> Unit = {},
+    onSubprojectClick: (Long) -> Unit = {},
     taskDescription: String? = null,
 ) {
     Column(modifier = Modifier.padding(16.dp)) {
@@ -50,12 +48,11 @@ fun TaskDetailContent(
             )
         }
         LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            // 子项目操作（排期/完成/放弃）已移至日程栏，任务栏只负责展示与创建。
             items(subprojects, key = { it.id }) { sub ->
                 SubprojectRow(
                     subproject = sub,
                     onClick = { onSubprojectClick(sub.id) },
-                    onSchedule = { onScheduleClick(sub.id) },
-                    onAbandon = { onAbandonClick(sub.id) },
                 )
             }
         }
@@ -65,9 +62,7 @@ fun TaskDetailContent(
 @Composable
 private fun SubprojectRow(
     subproject: SubprojectEntity,
-    onClick: () -> Unit,
-    onSchedule: () -> Unit = {},
-    onAbandon: () -> Unit = {},
+    onClick: () -> Unit = {},
 ) {
     Card(
         modifier = Modifier
@@ -87,26 +82,12 @@ private fun SubprojectRow(
                 text = subproject.title,
                 style = MaterialTheme.typography.bodyLarge,
             )
-            Row {
-                Text(
-                    text = subproject.status,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.testTag("SubprojectStatus-${subproject.id}"),
-                )
-                TextButton(
-                    onClick = onSchedule,
-                    modifier = Modifier.testTag("ScheduleButton-${subproject.id}"),
-                ) {
-                    Text("排期")
-                }
-                TextButton(
-                    onClick = onAbandon,
-                    modifier = Modifier.testTag("AbandonButton-${subproject.id}"),
-                ) {
-                    Text("放弃")
-                }
-            }
+            Text(
+                text = subproject.status,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.testTag("SubprojectStatus-${subproject.id}"),
+            )
         }
     }
 }

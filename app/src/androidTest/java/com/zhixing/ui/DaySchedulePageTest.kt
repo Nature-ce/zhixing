@@ -16,6 +16,7 @@ import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -433,6 +434,68 @@ class DaySchedulePageTest {
 
         composeRule.waitUntil(timeoutMillis = 5_000) { abandonedId != null }
         assertThat(abandonedId).isEqualTo(1L)
+    }
+
+    @Test
+    fun click_backlog_item_shows_schedule_menu() {
+        // 日程栏点击 backlog 子项目 → 弹出操作菜单，只显示「排期」
+        // （完成/放弃在日程块菜单里已有，不重复）。
+        val backlog = listOf(BacklogItem(id = 2, title = "划重点"))
+
+        composeRule.setContent {
+            ZhixingTheme {
+                DaySchedulePage(
+                    date = "2026-07-08",
+                    scheduleItems = emptyList(),
+                    backlogItems = backlog,
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("BacklogItem-2").performClick()
+
+        // 弹窗打开：「排期」操作出现（完成/放弃在日程块菜单已有，不重复）
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodesWithText("排期", substring = true).fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithTag("BacklogScheduleConfirm").assertExists()
+    }
+
+    @Test
+    fun confirm_schedule_from_backlog_menu_invokes_onScheduleSubproject() {
+        // 完整排期流程：点 backlog 子项目 → 菜单「排期」→ 排期对话框确认 → onScheduleSubproject 被调用。
+        val backlog = listOf(BacklogItem(id = 2, title = "划重点"))
+
+        var scheduledArgs: Triple<Long, Int, Int>? = null
+
+        composeRule.setContent {
+            ZhixingTheme {
+                DaySchedulePage(
+                    date = "2026-07-08",
+                    scheduleItems = emptyList(),
+                    backlogItems = backlog,
+                    onScheduleSubproject = { id, start, end -> scheduledArgs = Triple(id, start, end) },
+                )
+            }
+        }
+
+        // 点 backlog 子项目 → 弹出操作菜单 → 点「排期」
+        composeRule.onNodeWithTag("BacklogItem-2").performClick()
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodesWithTag("BacklogScheduleConfirm").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithTag("BacklogScheduleConfirm").performClick()
+
+        // 排期对话框弹出（默认 09:00-10:00 合法）→ 直接确认
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodesWithTag("ConfirmScheduleTime").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithTag("ConfirmScheduleTime").performClick()
+
+        composeRule.waitUntil(timeoutMillis = 5_000) { scheduledArgs != null }
+        assertThat(scheduledArgs?.first).isEqualTo(2L)
+        assertThat(scheduledArgs?.second).isEqualTo(540)   // 09:00
+        assertThat(scheduledArgs?.third).isEqualTo(600)    // 10:00
     }
 
     @Test

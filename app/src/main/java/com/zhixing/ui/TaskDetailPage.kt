@@ -74,8 +74,6 @@ fun TaskDetailPage(
     val scope = rememberCoroutineScope()
 
     var showAddDialog by remember { mutableStateOf(false) }
-    var showScheduleDialog by remember { mutableStateOf(false) }
-    var scheduleTargetId by remember { mutableStateOf(0L) }
     var menuExpanded by remember { mutableStateOf(false) }
     var pendingAction by remember { mutableStateOf<(() -> Unit)?>(null) }
     var showEditDialog by remember { mutableStateOf(false) }
@@ -146,16 +144,11 @@ fun TaskDetailPage(
         },
     ) { innerPadding ->
         Column(modifier = Modifier.fillMaxWidth().padding(innerPadding)) {
+            // 子项目的排期/完成/放弃操作已移至日程栏；任务栏只展示 + 创建子项目。
             TaskDetailContent(
                 taskTitle = title,
                 taskDescription = description,
                 subprojects = subprojects,
-                onSubprojectClick = { id -> scope.launch { vm.changeSubprojectStatus(id, "已完成") } },
-                onScheduleClick = { id ->
-                    scheduleTargetId = id
-                    showScheduleDialog = true
-                },
-                onAbandonClick = { id -> scope.launch { vm.changeSubprojectStatus(id, "已放弃") } },
             )
         }
     }
@@ -167,18 +160,6 @@ fun TaskDetailPage(
                 showAddDialog = false
             },
             onDismiss = { showAddDialog = false },
-        )
-    }
-
-    if (showScheduleDialog) {
-        ScheduleDateTimePickerDialog(
-            initialDate = today(),
-            today = today(),
-            onConfirm = { date, start, end ->
-                vm.scheduleSubproject(scheduleTargetId, date, start, end)
-                showScheduleDialog = false
-            },
-            onDismiss = { showScheduleDialog = false },
         )
     }
 

@@ -49,6 +49,7 @@ class TaskDetailContentTest {
 
     @Test
     fun click_subproject_invokes_callback_with_id() {
+        // 任务栏子项目行仍透传点击（例如用于选中/展开），但不再绑定完成/放弃操作。
         var clickedId = -1L
         composeRule.setContent {
             ZhixingTheme {
@@ -63,24 +64,5 @@ class TaskDetailContentTest {
         composeRule.onNodeWithTag("SubprojectRow-1").performClick()
 
         assert(clickedId == 1L) { "Expected click on id=1 but was $clickedId" }
-    }
-
-    @Test
-    fun abandon_button_invokes_callback_with_id() {
-        var abandonedId = -1L
-        composeRule.setContent {
-            ZhixingTheme {
-                TaskDetailContent(
-                    taskTitle = "读书笔记",
-                    subprojects = subprojects,
-                    onSubprojectClick = {},
-                    onAbandonClick = { abandonedId = it },
-                )
-            }
-        }
-
-        composeRule.onNodeWithTag("AbandonButton-1").performClick()
-
-        assert(abandonedId == 1L) { "Expected abandon on id=1 but was $abandonedId" }
     }
 }

@@ -83,36 +83,6 @@ class TaskDetailPageTest {
     }
 
     @Test
-    fun click_subproject_changes_status_to_completed() {
-        val subId = runBlocking {
-            val taskId = taskDao.insertTask(TaskEntity(title = "读书笔记", createdAt = 1_000L))
-            subprojectDao.insertSubproject(SubprojectEntity(taskId = taskId, title = "选书目", status = "backlog", createdAt = 2_000L))
-        }
-
-        composeRule.setContent {
-            ZhixingTheme {
-                TaskDetailPage(
-                    taskId = 1L,
-                    taskTitle = "读书笔记",
-                    taskDao = taskDao,
-                    subprojectDao = subprojectDao,
-                )
-            }
-        }
-
-        // 等子项目加载完
-        runBlocking { subprojectDao.getSubprojectsByTaskId(1L).first { it.isNotEmpty() } }
-
-        composeRule.onNodeWithTag("SubprojectRow-$subId").performClick()
-
-        // 等 flow 反映更新后再读 DB
-        runBlocking { subprojectDao.getSubprojectsByTaskId(1L).first { it.any { s -> s.status == "已完成" } } }
-
-        val updated = runBlocking { subprojectDao.getSubprojectsByTaskId(1L).first() }
-        assertThat(updated[0].status).isEqualTo("已完成")
-    }
-
-    @Test
     fun add_subproject_appears_in_list() {
         val taskId = runBlocking {
             taskDao.insertTask(TaskEntity(title = "读书笔记", createdAt = 1_000L))
@@ -145,73 +115,6 @@ class TaskDetailPageTest {
         assertThat(subs).hasSize(1)
         assertThat(subs[0].title).isEqualTo("选书目")
         assertThat(subs[0].status).isEqualTo("backlog")
-    }
-
-    @Test
-    fun schedule_subproject_shows_dialog_and_persists() {
-        val taskId = runBlocking {
-            taskDao.insertTask(TaskEntity(title = "读书笔记", createdAt = 1_000L))
-        }
-        val subId = runBlocking {
-            subprojectDao.insertSubproject(SubprojectEntity(taskId = taskId, title = "选书目", status = "backlog", createdAt = 2_000L))
-        }
-
-        val scheduleDao: ScheduleDao = db.scheduleDao()
-
-        composeRule.setContent {
-            ZhixingTheme {
-                TaskDetailPage(
-                    taskId = taskId,
-                    taskTitle = "读书笔记",
-                    taskDao = taskDao,
-                    subprojectDao = subprojectDao,
-                    scheduleDao = scheduleDao,
-                )
-            }
-        }
-
-        // 等子项目加载
-        runBlocking { subprojectDao.getSubprojectsByTaskId(taskId).first { it.isNotEmpty() } }
-
-        // 点击排期按钮 → 弹出排期对话框（默认 09:00-10:00 合法）
-        composeRule.onNodeWithTag("ScheduleButton-$subId").performClick()
-
-        // 直接确认（不拨动滚轮，使用默认时间段）
-        composeRule.onNodeWithText("确认").performClick()
-
-        // 等 flow 反映状态变化
-        runBlocking { subprojectDao.getSubprojectsByTaskId(taskId).first { it.any { s -> s.status == "已排期" } } }
-
-        val subs = runBlocking { subprojectDao.getSubprojectsByTaskId(taskId).first() }
-        assertThat(subs[0].status).isEqualTo("已排期")
-    }
-
-    @Test
-    fun click_abandon_button_changes_subproject_status_to_abandoned() {
-        val subId = runBlocking {
-            val taskId = taskDao.insertTask(TaskEntity(title = "读书笔记", createdAt = 1_000L))
-            subprojectDao.insertSubproject(SubprojectEntity(taskId = taskId, title = "选书目", status = "backlog", createdAt = 2_000L))
-        }
-
-        composeRule.setContent {
-            ZhixingTheme {
-                TaskDetailPage(
-                    taskId = 1L,
-                    taskTitle = "读书笔记",
-                    taskDao = taskDao,
-                    subprojectDao = subprojectDao,
-                )
-            }
-        }
-
-        runBlocking { subprojectDao.getSubprojectsByTaskId(1L).first { it.isNotEmpty() } }
-
-        composeRule.onNodeWithTag("AbandonButton-$subId").performClick()
-
-        runBlocking { subprojectDao.getSubprojectsByTaskId(1L).first { it.any { s -> s.status == "已放弃" } } }
-
-        val updated = runBlocking { subprojectDao.getSubprojectsByTaskId(1L).first() }
-        assertThat(updated[0].status).isEqualTo("已放弃")
     }
 
     @Test

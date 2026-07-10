@@ -99,6 +99,11 @@ fun DaySchedulePage(
     var showBlockMenu by remember { mutableStateOf(false) }
     var menuTargetId by remember { mutableStateOf(0L) }
 
+    // backlog 子项目的排期菜单（仅「排期」一项；完成/放弃在日程块菜单已有，不重复）。
+    var showBacklogMenu by remember { mutableStateOf(false) }
+    var backlogMenuTargetId by remember { mutableStateOf(0L) }
+    var showBacklogScheduleDialog by remember { mutableStateOf(false) }
+
     // 用 Box 包裹内容 + glimpse overlay。overlay 在同一个坐标容器内，
     // 从而用 fingerRootY - containerTopPx 就能把 glimpse 定位到手指位置。
     Box(
@@ -201,6 +206,10 @@ fun DaySchedulePage(
                             style = MaterialTheme.typography.bodyMedium,
                             modifier = Modifier
                                 .testTag("BacklogItem-${backlogItem.id}")
+                                .clickable {
+                                    backlogMenuTargetId = backlogItem.id
+                                    showBacklogMenu = true
+                                }
                                 .onGloballyPositioned {
                                     backlogTops[backlogItem.id] = it.boundsInRoot().top
                                     backlogLefts[backlogItem.id] = it.boundsInRoot().left
@@ -290,6 +299,40 @@ fun DaySchedulePage(
                         },
                     ) { Text("放弃") }
                 },
+            )
+        }
+
+        // backlog 子项目的操作菜单：仅「排期」。
+        // 完成/放弃在日程块菜单中已有（排期后的子项目进入格栅成为排期块），故不重复。
+        if (showBacklogMenu) {
+            AlertDialog(
+                onDismissRequest = { showBacklogMenu = false },
+                title = { Text("操作") },
+                text = { Text("对这个子项目做什么？") },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            showBacklogMenu = false
+                            showBacklogScheduleDialog = true
+                        },
+                        modifier = Modifier.testTag("BacklogScheduleConfirm"),
+                    ) { Text("排期") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showBacklogMenu = false }) { Text("取消") }
+                },
+            )
+        }
+
+        if (showBacklogScheduleDialog) {
+            ScheduleDateTimePickerDialog(
+                initialDate = date,
+                today = date,
+                onConfirm = { selectedDate, start, end ->
+                    onScheduleSubproject(backlogMenuTargetId, start, end)
+                    showBacklogScheduleDialog = false
+                },
+                onDismiss = { showBacklogScheduleDialog = false },
             )
         }
     }
