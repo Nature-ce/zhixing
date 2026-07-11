@@ -5,8 +5,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -32,6 +38,7 @@ import com.zhixing.data.dao.TaskDao
  *
  * 注入 DAO 便于 instrumented test 使用内存数据库。
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TaskNavHost(
     taskDao: TaskDao,
@@ -49,27 +56,41 @@ fun TaskNavHost(
 
             var showDialog by remember { mutableStateOf(false) }
 
-            // Box 让 FAB 能浮在列表之上。列表非空时才显示新增按钮——
+            // Scaffold 提供 TopApp栏（含设置入口）+ FAB。列表非空时才显示新增按钮——
             // 列表为空时由 ListView 内部的 EmptyState / "没有进行中的任务" 提供创建入口，
             // 避免重复按钮（符合 CONTEXT.md 第一次打开的欢迎页体验）。
-            Box(modifier = Modifier.fillMaxSize()) {
-                ListView(
-                    taskItems = items,
-                    onCreateFirstTask = { showDialog = true },
-                    onTaskClick = { id -> navController.navigate("task/$id") },
-                    hasAnyTask = hasAnyTask,
-                )
-
-                if (items.isNotEmpty()) {
-                    FloatingActionButton(
-                        onClick = { showDialog = true },
-                        modifier = Modifier
-                            .align(Alignment.BottomEnd)
-                            .padding(16.dp)
-                            .testTag("AddTaskButton"),
-                    ) {
-                        Icon(Icons.Default.Add, contentDescription = "新增任务")
+            Scaffold(
+                topBar = {
+                    TopAppBar(
+                        title = { Text("任务") },
+                        actions = {
+                            IconButton(
+                                onClick = { navController.navigate("settings") },
+                                modifier = Modifier.testTag("SettingsButton"),
+                            ) {
+                                Icon(Icons.Default.Settings, contentDescription = "AI 拆解设置")
+                            }
+                        },
+                    )
+                },
+                floatingActionButton = {
+                    if (items.isNotEmpty()) {
+                        FloatingActionButton(
+                            onClick = { showDialog = true },
+                            modifier = Modifier.testTag("AddTaskButton"),
+                        ) {
+                            Icon(Icons.Default.Add, contentDescription = "新增任务")
+                        }
                     }
+                },
+            ) { innerPadding ->
+                Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
+                    ListView(
+                        taskItems = items,
+                        onCreateFirstTask = { showDialog = true },
+                        onTaskClick = { id -> navController.navigate("task/$id") },
+                        hasAnyTask = hasAnyTask,
+                    )
                 }
             }
 
@@ -82,6 +103,10 @@ fun TaskNavHost(
                     onDismiss = { showDialog = false },
                 )
             }
+        }
+
+        composable("settings") {
+            SettingsPage(onBack = { navController.popBackStack() })
         }
 
         composable(
