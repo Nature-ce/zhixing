@@ -1,20 +1,26 @@
 package com.zhixing.ui
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -27,11 +33,16 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.zhixing.ai.ServiceProvider
+import com.zhixing.data.DecompositionException
+import com.zhixing.data.DecompositionService
+import com.zhixing.data.ai.SettingsStoreFactory
 import com.zhixing.data.dao.ScheduleDao
 import com.zhixing.data.dao.SubprojectDao
 import com.zhixing.data.dao.TaskDao
@@ -58,6 +69,7 @@ fun TaskDetailPage(
     taskDao: TaskDao? = null,
     subprojectDao: SubprojectDao? = null,
     scheduleDao: ScheduleDao? = null,
+    decompositionService: DecompositionService? = null,
 ) {
     val context = LocalContext.current
     val db = DatabaseProvider.db(context)
@@ -72,6 +84,14 @@ fun TaskDetailPage(
     val description by vm.taskDescription.collectAsState()
     val subprojects by vm.subprojects.collectAsState()
     val scope = rememberCoroutineScope()
+
+    // 拆解服务：测试注入 fake；生产侧按当前设置装配。
+    val service = decompositionService ?: remember {
+        ServiceProvider.decomposition(SettingsStoreFactory.create(context))
+    }
+
+    var decomposing by remember { mutableStateOf(false) }
+    var decomposeError by remember { mutableStateOf<String?>(null) }
 
     var showAddDialog by remember { mutableStateOf(false) }
     var menuExpanded by remember { mutableStateOf(false) }
@@ -144,6 +164,26 @@ fun TaskDetailPage(
         },
     ) { innerPadding ->
         Column(modifier = Modifier.fillMaxWidth().padding(innerPadding)) {
+            // AI 拆解入口：调用后端代理拆解任务为子项目。
+            DecomposeButtonRow(
+                decomposing = decomposing,
+                error = decomposeError,
+                onDecompose = {
+                    decomposeError = null
+                    decomposing = true
+                    scope.launch {
+                        try {
+                            vm.decompose(service, replaceExisting = true)
+                            decomposeError = null
+                        } catch (e: DecompositionException) {
+                            decomposeError = e.message
+                        } finally {
+                            decomposing = false
+                        }
+                    }
+                },
+            )
+
             // 子项目的排期/完成/放弃操作已移至日程栏；任务栏只展示 + 创建子项目。
             TaskDetailContent(
                 taskTitle = title,
@@ -192,6 +232,45 @@ fun TaskDetailPage(
                 TextButton(onClick = { pendingAction = null }) { Text("取消") }
             },
         )
+    }
+}
+
+@Composable
+private fun DecomposeButtonRow(
+    decomposing: Boolean,
+    error: String?,
+    onDecompose: () -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Button(
+                onClick = onDecompose,
+                enabled = !decomposing,
+                modifier = Modifier.testTag("DecomposeButton"),
+            ) {
+                Text("AI 拆解")
+            }
+
+            if (decomposing) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(20.dp).testTag("DecomposeLoadingIndicator"),
+                    strokeWidth = 2.dp,
+                )
+            }
+        }
+
+        if (error != null) {
+            Text(
+                text = error,
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(top = 4.dp).testTag("DecomposeErrorText"),
+            )
+        }
     }
 }
 

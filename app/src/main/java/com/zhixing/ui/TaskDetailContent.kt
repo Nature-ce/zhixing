@@ -81,6 +81,7 @@ private fun SubprojectRow(
             Text(
                 text = subproject.title,
                 style = MaterialTheme.typography.bodyLarge,
+                modifier = Modifier.testTag(subproject.title),
             )
             Text(
                 text = subproject.status,
