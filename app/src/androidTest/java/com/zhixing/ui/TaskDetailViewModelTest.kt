@@ -2,6 +2,9 @@ package com.zhixing.ui
 
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
+import com.zhixing.data.DecompositionException
+import com.zhixing.data.DecompositionResult
+import com.zhixing.data.DecompositionService
 import com.zhixing.data.dao.ScheduleDao
 import com.zhixing.data.dao.SubprojectDao
 import com.zhixing.data.dao.TaskDao
@@ -12,6 +15,7 @@ import com.zhixing.data.entity.TaskEntity
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
+import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
@@ -270,6 +274,90 @@ class TaskDetailViewModelTest {
 
         val schedules = runBlocking { scheduleDao.getScheduleItemsByDate("2026-07-08").first() }
         assertThat(schedules).isEmpty()
+    }
+
+    /** 纯内存假服务，用于 instrumented 验证 decompose 编排（不触及网络）。 */
+    private class FakeDecompositionService(
+        private val results: List<DecompositionResult> = emptyList(),
+        private val error: String? = null,
+    ) : DecompositionService {
+        override suspend fun decompose(taskTitle: String, taskDescription: String?): List<DecompositionResult> {
+            if (error != null) throw DecompositionException(error)
+            return results
+        }
+    }
+
+    @Test
+    fun decompose_inserts_subprojects_from_service() {
+        val taskDao: TaskDao = db.taskDao()
+        val subprojectDao: SubprojectDao = db.subprojectDao()
+        val scheduleDao: ScheduleDao = db.scheduleDao()
+
+        val taskId = runBlocking {
+            taskDao.insertTask(TaskEntity(title = "写报告", createdAt = 1_000L))
+        }
+        val vm = TaskDetailViewModel(taskId, taskDao, subprojectDao, scheduleDao)
+        runBlocking { vm.subprojects.first { it.isEmpty() } }
+
+        val service = FakeDecompositionService(
+            results = listOf(
+                DecompositionResult("收集资料", 30),
+                DecompositionResult("撰写大纲", 45),
+            ),
+        )
+        runBlocking { vm.decompose(service) }
+
+        val subs = runBlocking { subprojectDao.getSubprojectsByTaskId(taskId).first() }
+        assertThat(subs).hasSize(2)
+        assertThat(subs.map { it.title }).containsExactly("收集资料", "撰写大纲")
+        assertThat(subs.map { it.estimatedDuration }).containsExactly(30, 45)
+        assertThat(subs).allMatch { it.status == "backlog" }
+        assertThat(subs).allMatch { it.taskId == taskId }
+    }
+
+    @Test
+    fun decompose_withReplaceExisting_clearsOld_subprojects() {
+        val taskDao: TaskDao = db.taskDao()
+        val subprojectDao: SubprojectDao = db.subprojectDao()
+        val scheduleDao: ScheduleDao = db.scheduleDao()
+
+        val taskId = runBlocking {
+            val id = taskDao.insertTask(TaskEntity(title = "写报告", createdAt = 1_000L))
+            subprojectDao.insertSubproject(SubprojectEntity(taskId = id, title = "旧步骤", status = "backlog", createdAt = 2_000L))
+            id
+        }
+        val vm = TaskDetailViewModel(taskId, taskDao, subprojectDao, scheduleDao)
+        runBlocking { vm.subprojects.first { it.isNotEmpty() } }
+
+        val service = FakeDecompositionService(
+            results = listOf(DecompositionResult("新步骤", 20)),
+        )
+        runBlocking { vm.decompose(service, replaceExisting = true) }
+
+        val subs = runBlocking { subprojectDao.getSubprojectsByTaskId(taskId).first() }
+        assertThat(subs).hasSize(1)
+        assertThat(subs[0].title).isEqualTo("新步骤")
+    }
+
+    @Test
+    fun decompose_propagates_service_error() {
+        val taskDao: TaskDao = db.taskDao()
+        val subprojectDao: SubprojectDao = db.subprojectDao()
+        val scheduleDao: ScheduleDao = db.scheduleDao()
+
+        val taskId = runBlocking {
+            taskDao.insertTask(TaskEntity(title = "写报告", createdAt = 1_000L))
+        }
+        val vm = TaskDetailViewModel(taskId, taskDao, subprojectDao, scheduleDao)
+
+        val service = FakeDecompositionService(error = "网络连接失败")
+        assertThatThrownBy { runBlocking { vm.decompose(service) } }
+            .isInstanceOf(DecompositionException::class.java)
+            .hasMessageContaining("网络")
+
+        // 出错时不应写入任何子项目
+        val subs = runBlocking { subprojectDao.getSubprojectsByTaskId(taskId).first() }
+        assertThat(subs).isEmpty()
     }
 
     @Test

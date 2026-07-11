@@ -2,6 +2,8 @@ package com.zhixing.ui
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.zhixing.data.DecompositionException
+import com.zhixing.data.DecompositionService
 import com.zhixing.data.SubprojectState
 import com.zhixing.data.TaskStatus
 import com.zhixing.data.dao.ScheduleDao
@@ -117,5 +119,35 @@ class TaskDetailViewModel(
         taskDao.updateTaskInfo(taskId, title, description)
         _taskTitle.value = title
         _taskDescription.value = description
+    }
+
+    /**
+     * 调用 [service] 拆解当前任务，把结果写入子项目（status = backlog）。
+     *
+     * 安全顺序：先获取拆解结果，成功后再清除旧数据 + 插入——服务失败时保留
+     * 原有子项目，避免误删用户数据。
+     *
+     * @param replaceExisting 为 true 时覆盖该任务下所有已有子项目及其排期。
+     * @throws DecompositionException 服务失败时向上传播，UI 层负责展示错误。
+     */
+    suspend fun decompose(service: DecompositionService, replaceExisting: Boolean = false) {
+        val results = service.decompose(_taskTitle.value, _taskDescription.value)
+        if (replaceExisting) {
+            val existing = _subprojects.value
+            // 先清排期（FK 指向子项目），再清子项目本身
+            scheduleDao.clearScheduleForSubprojects(existing.map { it.id })
+            subprojectDao.deleteSubprojectsByTaskId(taskId)
+        }
+        for (r in results) {
+            subprojectDao.insertSubproject(
+                SubprojectEntity(
+                    taskId = taskId,
+                    title = r.title,
+                    status = "backlog",
+                    estimatedDuration = r.estimatedDuration,
+                    createdAt = System.currentTimeMillis(),
+                ),
+            )
+        }
     }
 }
