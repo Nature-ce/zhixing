@@ -47,6 +47,7 @@ import com.zhixing.data.dao.ScheduleDao
 import com.zhixing.data.dao.SubprojectDao
 import com.zhixing.data.dao.TaskDao
 import com.zhixing.data.db.DatabaseProvider
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -175,8 +176,13 @@ fun TaskDetailPage(
                         try {
                             vm.decompose(service, replaceExisting = true)
                             decomposeError = null
-                        } catch (e: DecompositionException) {
-                            decomposeError = e.message
+                        } catch (e: CancellationException) {
+                            // 协程取消（如页面离开）不应被当作错误处理，恢复状态即可
+                            throw e
+                        } catch (e: Exception) {
+                            // 兜底：service/VM 任一层未预期的异常都不该让 app 闪退，
+                            // 而是展示错误提示
+                            decomposeError = e.message ?: "拆解失败"
                         } finally {
                             decomposing = false
                         }

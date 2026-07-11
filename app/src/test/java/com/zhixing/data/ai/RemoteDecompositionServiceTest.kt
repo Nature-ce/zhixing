@@ -1,5 +1,7 @@
 package com.zhixing.data.ai
 
+import com.squareup.moshi.Moshi
+import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import com.zhixing.data.DecompositionException
 import kotlinx.coroutines.runBlocking
 import okhttp3.mockwebserver.MockResponse
@@ -23,6 +25,7 @@ class RemoteDecompositionServiceTest {
 
     private val server = MockWebServer()
     private lateinit var service: RemoteDecompositionService
+    private val moshi: Moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
 
     @Before
     fun setUp() {
@@ -89,6 +92,28 @@ class RemoteDecompositionServiceTest {
             .isInstanceOf(DecompositionException::class.java)
             .hasMessageContaining("400")
             .hasMessageContaining("Unsupported model")
+    }
+
+    /**
+     * 当网络层抛出未预期的 RuntimeException（例如缺少 INTERNET 权限时 OkHttp 抛
+     * SecurityException），service 应把它转为 DecompositionException 而不是让
+     * 异常穿透到调用方（穿透到协程会闪退）。
+     */
+    @Test
+    fun decompose_wraps_unexpected_runtimeException_into_decompositionException() {
+        val service = RemoteDecompositionService(
+            api = object : DecompositionApi {
+                override suspend fun chatCompletions(request: ChatCompletionRequest): ChatCompletionResponse {
+                    throw SecurityException("missing INTERNET permission")
+                }
+            },
+            moshi = moshi,
+            model = "deepseek-chat",
+        )
+
+        assertThatThrownBy { runBlocking { service.decompose("任务", "描述") } }
+            .isInstanceOf(DecompositionException::class.java)
+            .hasMessageContaining("调用")
     }
 
     /**

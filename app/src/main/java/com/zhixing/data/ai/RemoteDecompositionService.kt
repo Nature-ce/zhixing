@@ -43,6 +43,7 @@ class RemoteDecompositionService(
         val response: ChatCompletionResponse = try {
             api.chatCompletions(request)
         } catch (e: IOException) {
+            // 网络不可达、DNS 失败、超时等
             throw DecompositionException("网络连接失败：${e.message}")
         } catch (e: HttpException) {
             val errorBody = try {
@@ -51,6 +52,10 @@ class RemoteDecompositionService(
             val msg = if (!errorBody.isNullOrBlank()) "HTTP ${e.code()}：$errorBody"
                       else "拆解服务返回错误（HTTP ${e.code()}）"
             throw DecompositionException(msg)
+        } catch (e: Exception) {
+            // 兜底：未预期的 RuntimeException（如缺少 INTERNET 权限时的 SecurityException、
+            // JSON 序列化异常等），避免穿透到协程导致 app 闪退
+            throw DecompositionException("拆解服务调用失败：${e.message}")
         }
 
         val content: String = response.choices
