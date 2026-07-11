@@ -55,8 +55,9 @@ class DayScheduleViewModel(
             combine(
                 scheduleDao.getScheduleItemsByDate(date),
                 subprojectDao.getAllSubprojects(),
+                taskDao.getAllTasks(),
                 _currentMinutes,
-            ) { scheduleItems, subprojects, currentTime ->
+            ) { scheduleItems, subprojects, tasks, currentTime ->
                 val assembled = ScheduleListComposer.assemble(
                     scheduleItems = scheduleItems,
                     subprojects = subprojects,
@@ -64,7 +65,8 @@ class DayScheduleViewModel(
                     today = date,
                 )
                 val scheduledIds = scheduleItems.map { it.subprojectId }.toSet()
-                val backlog = BacklogComposer.assemble(subprojects, scheduledIds)
+                val taskTitles = tasks.associate { it.id to it.title }
+                val backlog = BacklogComposer.assemble(subprojects, scheduledIds, taskTitles)
                 Pair(assembled, backlog)
             }.collect { (assembled, backlog) ->
                 _scheduleItems.value = assembled

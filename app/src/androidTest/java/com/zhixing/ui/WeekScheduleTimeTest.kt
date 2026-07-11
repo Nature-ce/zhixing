@@ -72,6 +72,7 @@ class WeekScheduleTimeTest {
             weekDates = listOf("2026-07-06", "2026-07-07", "2026-07-08", "2026-07-09", "2026-07-10", "2026-07-11", "2026-07-12"),
             scheduleDao = scheduleDao,
             subprojectDao = subprojectDao,
+            taskDao = taskDao,
         )
 
         val itemsByDate = runBlocking { vm.itemsByDate.first { it.isNotEmpty() } }

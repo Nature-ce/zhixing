@@ -2,11 +2,21 @@ package com.zhixing.ui
 
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onAllNodesWithContentDescription
+import androidx.compose.ui.test.onFirst
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import com.zhixing.ui.theme.ZhixingTheme
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.Rule
@@ -65,6 +75,79 @@ class WeekScheduleDragDropTest {
         }
     }
 
+    /**
+     * 行为 #4（周视图镜像）：backlog 子项目按父任务归组，每组有独立 header 显示任务标题；
+     * 药丸不再在内部印任务标题，而是作为组 header 出现。
+     */
+    @Test
+    fun backlog_groups_subprojects_by_task() {
+        val backlog = listOf(
+            BacklogItem(id = 1, title = "选书目", taskId = 10L, taskTitle = "读书笔记"),
+            BacklogItem(id = 2, title = "划重点", taskId = 10L, taskTitle = "读书笔记"),
+            BacklogItem(id = 3, title = "挑礼物", taskId = 20L, taskTitle = "筹备婚礼"),
+        )
+
+        composeRule.setContent {
+            ZhixingTheme {
+                WeekSchedulePage(
+                    weekDates = listOf("2026-07-06", "2026-07-07", "2026-07-08", "2026-07-09", "2026-07-10", "2026-07-11", "2026-07-12"),
+                    itemsByDate = emptyMap(),
+                    backlogItems = backlog,
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("TaskGroupHeader-10", useUnmergedTree = true).assertIsDisplayed()
+        composeRule.onNodeWithTag("TaskGroupHeader-20", useUnmergedTree = true).assertIsDisplayed()
+        composeRule.onNodeWithText("读书笔记", useUnmergedTree = true).assertIsDisplayed()
+        composeRule.onNodeWithText("筹备婚礼", useUnmergedTree = true).assertIsDisplayed()
+        composeRule.onNodeWithTag("BacklogItem-1", useUnmergedTree = true).assertIsDisplayed()
+        composeRule.onNodeWithTag("BacklogItem-2", useUnmergedTree = true).assertIsDisplayed()
+        composeRule.onNodeWithTag("BacklogItem-3", useUnmergedTree = true).assertIsDisplayed()
+    }
+
+    /**
+     * 行为 #5（周视图镜像）：点击组 header 折叠/展开该组的子项目药丸。
+     * 折叠"读书笔记"组 → 其药丸隐藏，"筹备婚礼"组药丸仍可见；再点 → 恢复。
+     */
+    @Test
+    fun collapsing_taskGroup_hidesItsPills() {
+        val backlog = listOf(
+            BacklogItem(id = 1, title = "选书目", taskId = 10L, taskTitle = "读书笔记"),
+            BacklogItem(id = 2, title = "挑礼物", taskId = 20L, taskTitle = "筹备婚礼"),
+        )
+
+        composeRule.setContent {
+            ZhixingTheme {
+                WeekSchedulePage(
+                    weekDates = listOf("2026-07-06", "2026-07-07", "2026-07-08", "2026-07-09", "2026-07-10", "2026-07-11", "2026-07-12"),
+                    itemsByDate = emptyMap(),
+                    backlogItems = backlog,
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("选书目", useUnmergedTree = true).assertIsDisplayed()
+        composeRule.onNodeWithText("挑礼物", useUnmergedTree = true).assertIsDisplayed()
+
+        composeRule.onNodeWithTag("TaskGroupHeader-10", useUnmergedTree = true).performClick()
+        composeRule.waitForIdle()
+
+        composeRule.onAllNodesWithText("选书目", useUnmergedTree = true).assertCountEquals(0)
+        composeRule.onNodeWithText("挑礼物", useUnmergedTree = true).assertIsDisplayed()
+        // 折叠态组头不显示向右箭头（"展开"），仿照整体 backlog Header
+        composeRule.onAllNodesWithContentDescription("展开", useUnmergedTree = true).assertCountEquals(0)
+
+        composeRule.onNodeWithTag("TaskGroupHeader-10", useUnmergedTree = true).performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithText("选书目", useUnmergedTree = true).assertIsDisplayed()
+    }
+
+    /**
+     * 周视图展开态 header：有"待排期"标题 + "收起"向下箭头，无计数徽标（badge）。
+     *
+     * 行为 #1（周视图镜像）：Badge（未排期个数）已被移除。
+     */
     @Test
     fun backlog_rendersPillsWithHeaderAndBadge() {
         val backlog = listOf(
@@ -82,14 +165,56 @@ class WeekScheduleDragDropTest {
             }
         }
 
-        // 标题 + 数量徽标
+        // 标题 + 向下箭头（收起）
         composeRule.onNodeWithText("待排期", useUnmergedTree = false).assertIsDisplayed()
-        composeRule.onNodeWithText("2", useUnmergedTree = true).assertIsDisplayed()
+        // 整体 backlog header + 各组 header 均可能带"收起"chevron，断言至少一个可见
+        composeRule.onAllNodesWithContentDescription("收起", useUnmergedTree = true).onFirst().assertIsDisplayed()
+        // 计数徽标 "2" 不应存在
+        composeRule.onAllNodesWithText("2", useUnmergedTree = true).assertCountEquals(0)
         // 药丸标题
         composeRule.onNodeWithText("选书目", useUnmergedTree = true).assertIsDisplayed()
         composeRule.onNodeWithText("划重点", useUnmergedTree = true).assertIsDisplayed()
         // 时长标签（药丸副标题）
         composeRule.onNodeWithText("60分", useUnmergedTree = true).assertIsDisplayed()
+    }
+
+    /**
+     * 周视图 backlog 折叠由外部 prop 驱动（行为 #3/#4）：
+     *   - collapsed=true 时药丸隐藏、header 仍在
+     *   - 点击 header 调用 onCollapsedChange(!collapsed)，外部 state 翻转后页面跟着折叠
+     */
+    @Test
+    fun backlog_canBeCollapsed_andRestored() {
+        val weekDates = listOf("2026-07-06", "2026-07-07", "2026-07-08", "2026-07-09", "2026-07-10", "2026-07-11", "2026-07-12")
+        val backlog = listOf(
+            BacklogItem(id = 1, title = "选书目"),
+            BacklogItem(id = 2, title = "划重点"),
+        )
+
+        composeRule.setContent {
+            ZhixingTheme {
+                // 外部持有折叠状态（模拟 MainScreen 层级的 collapsedBacklog）。
+                var externalCollapsed by remember { mutableStateOf(false) }
+                WeekSchedulePage(
+                    weekDates = weekDates,
+                    itemsByDate = emptyMap(),
+                    backlogItems = backlog,
+                    collapsed = externalCollapsed,
+                    onCollapsedChange = { externalCollapsed = it },
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("选书目", useUnmergedTree = true).assertIsDisplayed()
+        composeRule.onNodeWithText("划重点", useUnmergedTree = true).assertIsDisplayed()
+
+        // 点 header → onCollapsedChange(true) → 外部状态翻转为 true → 折叠
+        composeRule.onNodeWithTag("BacklogHeader", useUnmergedTree = true).performClick()
+        composeRule.waitForIdle()
+
+        composeRule.onAllNodesWithText("选书目", useUnmergedTree = true).assertCountEquals(0)
+        composeRule.onAllNodesWithText("划重点", useUnmergedTree = true).assertCountEquals(0)
+        composeRule.onNodeWithTag("BacklogHeader", useUnmergedTree = true).assertIsDisplayed()
     }
 
     @Test

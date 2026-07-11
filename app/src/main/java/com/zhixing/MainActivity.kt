@@ -82,6 +82,8 @@ private fun MainScreen() {
     // 日程视图模式（日 / 周）放在 MainScreen 层级，
     // 跨 tab 切换时不被销毁（NavHost 内的 composable 会被回退栈移除）。
     var isScheduleWeekView by remember { mutableStateOf(false) }
+    // backlog 折叠状态同例：提到 MainScreen，切 tab 再切回不会丢失。
+    var collapsedBacklog by remember { mutableStateOf(false) }
     Scaffold(
         bottomBar = {
             NavigationBar {
@@ -110,6 +112,8 @@ private fun MainScreen() {
                 ScheduleTab(
                     isWeekView = isScheduleWeekView,
                     onViewChange = { isScheduleWeekView = it },
+                    collapsedBacklog = collapsedBacklog,
+                    onCollapsedBacklogChange = { collapsedBacklog = it },
                 )
             }
             composable("review") { ReviewTab() }
@@ -132,6 +136,8 @@ private fun TasksTab() {
 private fun ScheduleTab(
     isWeekView: Boolean,
     onViewChange: (Boolean) -> Unit,
+    collapsedBacklog: Boolean,
+    onCollapsedBacklogChange: (Boolean) -> Unit,
 ) {
     val context = LocalContext.current
     val db = DatabaseProvider.db(context)
@@ -164,6 +170,7 @@ private fun ScheduleTab(
                 weekDates = weekDates,
                 scheduleDao = db.scheduleDao(),
                 subprojectDao = db.subprojectDao(),
+                taskDao = db.taskDao(),
             )
             val weekVm: WeekScheduleViewModel = viewModel(factory = factory)
             val itemsByDate by weekVm.itemsByDate.collectAsState()
@@ -178,6 +185,8 @@ private fun ScheduleTab(
                         weekVm.scheduleSubproject(subprojectId, date, startTime, endTime)
                     }
                 },
+                collapsed = collapsedBacklog,
+                onCollapsedChange = onCollapsedBacklogChange,
                 modifier = Modifier.weight(1f),
             )
         } else {
@@ -206,6 +215,8 @@ private fun ScheduleTab(
                 onAbandonSubproject = { subprojectId ->
                     scope.launch { vm.abandonSubproject(subprojectId) }
                 },
+                collapsed = collapsedBacklog,
+                onCollapsedChange = onCollapsedBacklogChange,
                 modifier = Modifier.weight(1f),
             )
         }

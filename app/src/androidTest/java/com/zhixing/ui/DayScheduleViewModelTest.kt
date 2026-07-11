@@ -80,6 +80,30 @@ class DayScheduleViewModelTest {
         assertThat(items).isEmpty()
     }
 
+    /**
+     * 行为 #2：backlog 条目应携带来源任务的标题（taskTitle），
+     * 以便 backlog 区能区分子项目来自哪个任务。
+     *
+     * 当前 BacklogItem 尚无 taskTitle → 编译失败（RED）。
+     */
+    @Test
+    fun backlog_items_carry_taskTitle() {
+        val taskId = runBlocking {
+            taskDao.insertTask(TaskEntity(title = "读书笔记", createdAt = 1_000L))
+        }
+        runBlocking {
+            subprojectDao.insertSubproject(SubprojectEntity(taskId = taskId, title = "选书目", status = "backlog", createdAt = 2_000L))
+        }
+
+        val vm = DayScheduleViewModel(date = "2026-07-08", taskDao = taskDao, scheduleDao = scheduleDao, subprojectDao = subprojectDao)
+
+        val backlog = runBlocking { vm.backlogItems.first { it.isNotEmpty() } }
+
+        assertThat(backlog).hasSize(1)
+        assertThat(backlog[0].title).isEqualTo("选书目")
+        assertThat(backlog[0].taskTitle).isEqualTo("读书笔记")
+    }
+
     @Test
     fun marks_items_as_overdue_when_endTime_before_injected_current_time() {
         runBlocking {

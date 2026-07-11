@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.zhixing.data.ScheduleConflictDetector
 import com.zhixing.data.dao.ScheduleDao
 import com.zhixing.data.dao.SubprojectDao
+import com.zhixing.data.dao.TaskDao
 import com.zhixing.data.entity.ScheduleEntity
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -24,6 +25,7 @@ class WeekScheduleViewModel(
     private val weekDates: List<String>,
     private val scheduleDao: ScheduleDao,
     private val subprojectDao: SubprojectDao,
+    private val taskDao: TaskDao,
 ) : ViewModel() {
 
     private val _itemsByDate = MutableStateFlow<Map<String, List<ScheduleItem>>>(emptyMap())
@@ -41,7 +43,8 @@ class WeekScheduleViewModel(
                 combine(
                     scheduleDao.getScheduleItemsBetween(startDate, endDate),
                     subprojectDao.getAllSubprojects(),
-                ) { scheduleItems, subprojects ->
+                    taskDao.getAllTasks(),
+                ) { scheduleItems, subprojects, tasks ->
                     val assembled = ScheduleListComposer.assemble(scheduleItems, subprojects)
                     // 仅保留本周范围内的排期，按日期分组
                     val grouped = assembled
@@ -52,7 +55,8 @@ class WeekScheduleViewModel(
                         .filter { it.date in weekDates }
                         .map { it.subprojectId }
                         .toSet()
-                    val backlog = BacklogComposer.assemble(subprojects, scheduledIds)
+                    val taskTitles = tasks.associate { it.id to it.title }
+                    val backlog = BacklogComposer.assemble(subprojects, scheduledIds, taskTitles)
                     Pair(grouped, backlog)
                 }.collect { (grouped, backlog) ->
                     _itemsByDate.value = grouped
@@ -102,10 +106,11 @@ class WeekScheduleViewModelFactory(
     private val weekDates: List<String>,
     private val scheduleDao: ScheduleDao,
     private val subprojectDao: SubprojectDao,
+    private val taskDao: TaskDao,
 ) : ViewModelProvider.Factory {
 
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
-        return WeekScheduleViewModel(weekDates, scheduleDao, subprojectDao) as T
+        return WeekScheduleViewModel(weekDates, scheduleDao, subprojectDao, taskDao) as T
     }
 }

@@ -6,11 +6,23 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onAllNodesWithContentDescription
+import androidx.compose.ui.test.onFirst
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import com.zhixing.ui.theme.ZhixingTheme
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.Rule
@@ -50,6 +62,86 @@ class DayScheduleDragDropTest {
 
         composeRule.onNodeWithTag("BacklogItem-1", useUnmergedTree = true).assertIsDisplayed()
         composeRule.onNodeWithTag("BacklogItem-2", useUnmergedTree = true).assertIsDisplayed()
+    }
+
+    /**
+     * 行为 #4（UI）：backlog 子项目按父任务归组，每组有独立 header 显示任务标题；
+     * 药丸不再在内部印任务标题，而是作为组 header 出现。两个不同任务的子项目
+     * → 两个 TaskGroupHeader，药丸归属正确。
+     *
+     * 当前按扁平 FlowRow 渲染，无 TaskGroupHeader → 断言失败（RED）。
+     */
+    @Test
+    fun backlog_groups_subprojects_by_task() {
+        val backlog = listOf(
+            BacklogItem(id = 1, title = "选书目", taskId = 10L, taskTitle = "读书笔记"),
+            BacklogItem(id = 2, title = "划重点", taskId = 10L, taskTitle = "读书笔记"),
+            BacklogItem(id = 3, title = "挑礼物", taskId = 20L, taskTitle = "筹备婚礼"),
+        )
+
+        composeRule.setContent {
+            ZhixingTheme {
+                DaySchedulePage(
+                    date = "2026-07-09",
+                    scheduleItems = emptyList(),
+                    backlogItems = backlog,
+                )
+            }
+        }
+
+        // 两个任务各自的组 header 存在
+        composeRule.onNodeWithTag("TaskGroupHeader-10", useUnmergedTree = true).assertIsDisplayed()
+        composeRule.onNodeWithTag("TaskGroupHeader-20", useUnmergedTree = true).assertIsDisplayed()
+        // 任务标题作为组头文本出现（不在药丸内）
+        composeRule.onNodeWithText("读书笔记", useUnmergedTree = true).assertIsDisplayed()
+        composeRule.onNodeWithText("筹备婚礼", useUnmergedTree = true).assertIsDisplayed()
+        // 所有药丸仍渲染
+        composeRule.onNodeWithTag("BacklogItem-1", useUnmergedTree = true).assertIsDisplayed()
+        composeRule.onNodeWithTag("BacklogItem-2", useUnmergedTree = true).assertIsDisplayed()
+        composeRule.onNodeWithTag("BacklogItem-3", useUnmergedTree = true).assertIsDisplayed()
+    }
+
+    /**
+     * 行为 #5（UI）：点击组 header 折叠/展开该组的子项目药丸。
+     *
+     * 折叠"读书笔记"组 → 其药丸（选书目/划重点）隐藏，"筹备婚礼"组药丸仍可见；
+     * 再点一次 → 恢复可见。
+     */
+    @Test
+    fun collapsing_taskGroup_hidesItsPills() {
+        val backlog = listOf(
+            BacklogItem(id = 1, title = "选书目", taskId = 10L, taskTitle = "读书笔记"),
+            BacklogItem(id = 2, title = "挑礼物", taskId = 20L, taskTitle = "筹备婚礼"),
+        )
+
+        composeRule.setContent {
+            ZhixingTheme {
+                DaySchedulePage(
+                    date = "2026-07-09",
+                    scheduleItems = emptyList(),
+                    backlogItems = backlog,
+                )
+            }
+        }
+
+        // 初始展开：两组药丸都可见
+        composeRule.onNodeWithText("选书目", useUnmergedTree = true).assertIsDisplayed()
+        composeRule.onNodeWithText("挑礼物", useUnmergedTree = true).assertIsDisplayed()
+
+        // 折叠"读书笔记"组
+        composeRule.onNodeWithTag("TaskGroupHeader-10", useUnmergedTree = true).performClick()
+        composeRule.waitForIdle()
+
+        composeRule.onAllNodesWithText("选书目", useUnmergedTree = true).assertCountEquals(0)
+        // 另一组不受影响
+        composeRule.onNodeWithText("挑礼物", useUnmergedTree = true).assertIsDisplayed()
+        // 折叠态组头不显示向右箭头（"展开"），仿照整体 backlog Header
+        composeRule.onAllNodesWithContentDescription("展开", useUnmergedTree = true).assertCountEquals(0)
+
+        // 再次点击 → 展开恢复
+        composeRule.onNodeWithTag("TaskGroupHeader-10", useUnmergedTree = true).performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithText("选书目", useUnmergedTree = true).assertIsDisplayed()
     }
 
     @Test
@@ -119,6 +211,83 @@ class DayScheduleDragDropTest {
         // 落在第 6 行 → 09:00 = 540，时长 60 → end = 600
         assertThat(result.second).isEqualTo(540)
         assertThat(result.third).isEqualTo(600)
+    }
+
+    /**
+     * 展开态 header：有"待排期"标题 + "收起"向下箭头，无计数徽标（badge）。
+     *
+     * 行为 #1：Badge（未排期个数）已被移除，无论展开还是折叠都不应出现计数数字。
+     */
+    @Test
+    fun backlog_header_expandedShowsChevronWithoutBadge() {
+        val backlog = listOf(
+            BacklogItem(id = 1, title = "选书目"),
+            BacklogItem(id = 2, title = "划重点"),
+        )
+
+        composeRule.setContent {
+            ZhixingTheme {
+                DaySchedulePage(
+                    date = "2026-07-09",
+                    scheduleItems = emptyList(),
+                    backlogItems = backlog,
+                )
+            }
+        }
+
+        // 标题 + 向下箭头（收起）存在
+        composeRule.onNodeWithText("待排期", useUnmergedTree = true).assertIsDisplayed()
+        // 整体 backlog header + 各组 header 均可能带"收起"chevron，断言至少一个可见
+        composeRule.onAllNodesWithContentDescription("收起", useUnmergedTree = true).onFirst().assertIsDisplayed()
+        // 计数徽标 "2" 不应存在
+        composeRule.onAllNodesWithText("2", useUnmergedTree = true).assertCountEquals(0)
+    }
+
+    /**
+     * 折叠状态由页面外部持有（首页 MainScreen 层级），通过 collapsed/onCollapsedChange 传入。
+     *
+     * 验证：
+     *   - collapsed=false（默认）时药丸可见
+     *   - 页面本身不再持有 collapse 状态，点击 header 调用 onCollapsedChange(!collapsed)
+     *   - 外部 state 翻转后页面跟着折叠（prop 驱动 recomposition），药丸隐藏、header 仍在
+     *
+     * 与原内部状态版的区别：页面不再自己翻转 collapsed，纯粹由 prop 驱动——
+     * 这样 state 提到 MainScreen 后，切 tab 再切回来不会丢失（与 isScheduleWeekView 同级）。
+     */
+    @Test
+    fun backlog_canBeCollapsed_andRestored() {
+        val backlog = listOf(
+            BacklogItem(id = 1, title = "选书目"),
+            BacklogItem(id = 2, title = "划重点"),
+        )
+        composeRule.setContent {
+            ZhixingTheme {
+                // 外部持有的折叠状态（模拟 MainScreen 层级的 collapsedBacklog）。
+                var externalCollapsed by remember { mutableStateOf(false) }
+                DaySchedulePage(
+                    date = "2026-07-09",
+                    scheduleItems = emptyList(),
+                    backlogItems = backlog,
+                    collapsed = externalCollapsed,
+                    onCollapsedChange = { externalCollapsed = it },
+                )
+            }
+        }
+
+        // 初始展开：药丸可见
+        composeRule.onNodeWithText("选书目", useUnmergedTree = true).assertIsDisplayed()
+        composeRule.onNodeWithText("划重点", useUnmergedTree = true).assertIsDisplayed()
+
+        // 点 header → 调用 onCollapsedChange(true)，外部状态翻转 → recomposition → 折叠
+        composeRule.onNodeWithTag("BacklogHeader", useUnmergedTree = true).performClick()
+        composeRule.waitForIdle()
+
+        composeRule.onAllNodesWithText("选书目", useUnmergedTree = true).assertCountEquals(0)
+        composeRule.onAllNodesWithText("划重点", useUnmergedTree = true).assertCountEquals(0)
+
+        // header 仍在，且折叠态无"展开"向右箭头（行为 #2）
+        composeRule.onNodeWithTag("BacklogHeader", useUnmergedTree = true).assertIsDisplayed()
+        composeRule.onAllNodesWithContentDescription("展开", useUnmergedTree = true).assertCountEquals(0)
     }
 
     @Test

@@ -54,7 +54,7 @@ class WeekScheduleViewModelTest {
             scheduleDao.insertScheduleItem(ScheduleEntity(subprojectId = sub2, date = "2026-07-08", startTime = 540, endTime = 600))
         }
 
-        val vm = WeekScheduleViewModel(weekDates = listOf("2026-07-06", "2026-07-07", "2026-07-08", "2026-07-09", "2026-07-10", "2026-07-11", "2026-07-12"), scheduleDao = scheduleDao, subprojectDao = subprojectDao)
+        val vm = WeekScheduleViewModel(weekDates = listOf("2026-07-06", "2026-07-07", "2026-07-08", "2026-07-09", "2026-07-10", "2026-07-11", "2026-07-12"), scheduleDao = scheduleDao, subprojectDao = subprojectDao, taskDao = taskDao)
 
         val itemsByDate = runBlocking { vm.itemsByDate.first { it.isNotEmpty() } }
 
@@ -65,5 +65,25 @@ class WeekScheduleViewModelTest {
         assertThat(itemsByDate["2026-07-08"]!![0].subprojectTitle).isEqualTo("划重点")
         // 周日无排期，不在 map 里
         assertThat(itemsByDate["2026-07-07"]).isNull()
+    }
+
+    /**
+     * 行为 #3：周视图 backlog 条目应携带来源任务的标题（taskTitle）。
+     */
+    @Test
+    fun backlog_items_carry_taskTitle() {
+        val weekDates = listOf("2026-07-06", "2026-07-07", "2026-07-08", "2026-07-09", "2026-07-10", "2026-07-11", "2026-07-12")
+        val taskId = runBlocking { taskDao.insertTask(TaskEntity(title = "读书笔记", createdAt = 1_000L)) }
+        runBlocking {
+            subprojectDao.insertSubproject(SubprojectEntity(taskId = taskId, title = "选书目", status = "backlog", createdAt = 2_000L))
+        }
+
+        val vm = WeekScheduleViewModel(weekDates = weekDates, scheduleDao = scheduleDao, subprojectDao = subprojectDao, taskDao = taskDao)
+
+        val backlog = runBlocking { vm.backlogItems.first { it.isNotEmpty() } }
+
+        assertThat(backlog).hasSize(1)
+        assertThat(backlog[0].title).isEqualTo("选书目")
+        assertThat(backlog[0].taskTitle).isEqualTo("读书笔记")
     }
 }

@@ -5,6 +5,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextInput
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.zhixing.data.dao.ScheduleDao
@@ -52,6 +53,70 @@ class TaskNavHostTest {
     @After
     fun teardown() {
         db.close()
+    }
+
+    /**
+     * 任务列表非空时，列表右下应出现新增按钮（FAB "AddTaskButton"）。
+     *
+     * 现状：ListView 只在列表为空时暴露创建按钮，有任务卡片时无任何新增入口 → 该测试失败即 RED。
+     */
+    @Test
+    fun addTaskButton_shown_whenListHasItems() {
+        val taskId = runBlocking {
+            taskDao.insertTask(TaskEntity(title = "读书笔记", createdAt = 1_000L))
+        }
+
+        composeRule.setContent {
+            ZhixingTheme {
+                TaskNavHost(
+                    taskDao = taskDao,
+                    subprojectDao = subprojectDao,
+                    scheduleDao = scheduleDao,
+                )
+            }
+        }
+
+        // 等任务列表加载
+        runBlocking { taskDao.getAllTasks().first { it.isNotEmpty() } }
+
+        // 新增按钮应显示
+        composeRule.onNodeWithTag("AddTaskButton").assertIsDisplayed()
+    }
+
+    /**
+     * 端到端创建流程（行为 #2 + #3）：
+     *   列表已有任务 → 点 FAB "AddTaskButton" → 对话框出现 → 输入标题 → 确认 → 新增任务卡片出现。
+     */
+    @Test
+    fun tappingAddButton_createsNewTask() {
+        // 先放一条任务，让列表非空（FAB 才会显示）
+        runBlocking { taskDao.insertTask(TaskEntity(title = "读书笔记", createdAt = 1_000L)) }
+
+        composeRule.setContent {
+            ZhixingTheme {
+                TaskNavHost(
+                    taskDao = taskDao,
+                    subprojectDao = subprojectDao,
+                    scheduleDao = scheduleDao,
+                )
+            }
+        }
+
+        // 等任务列表加载
+        runBlocking { taskDao.getAllTasks().first { it.isNotEmpty() } }
+
+        // 点 FAB → 创建对话框弹出
+        composeRule.onNodeWithTag("AddTaskButton").performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("TaskTitleInput").assertIsDisplayed()
+
+        // 输入标题 → 确认
+        composeRule.onNodeWithTag("TaskTitleInput").performTextInput("新任务")
+        composeRule.onNodeWithText("确认").performClick()
+
+        // 新任务卡片出现在列表（等 flow 反映新增）
+        runBlocking { taskDao.getAllTasks().first { it.any { t -> t.title == "新任务" } } }
+        composeRule.onNodeWithText("新任务").assertIsDisplayed()
     }
 
     @Test

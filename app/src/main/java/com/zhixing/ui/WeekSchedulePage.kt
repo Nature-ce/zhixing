@@ -19,8 +19,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Badge
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -64,6 +66,10 @@ fun WeekSchedulePage(
     itemsByDate: Map<String, List<ScheduleItem>>,
     backlogItems: List<BacklogItem> = emptyList(),
     onScheduleSubproject: (subprojectId: Long, date: String, startTime: Int, endTime: Int) -> Unit = { _, _, _, _ -> },
+    // 折叠状态由首页 MainScreen 层级持有（与 isScheduleWeekView 同级），
+    // 跨 tab / 日周切换时不会随 composition 销毁而丢失。页面本身只读 + 上报翻转请求。
+    collapsed: Boolean = false,
+    onCollapsedChange: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val grid = ScheduleTimeGrid
@@ -235,6 +241,8 @@ fun WeekSchedulePage(
                         }
                     },
                     onDragCancel = { dragState = null },
+                    collapsed = collapsed,
+                    onCollapsedChange = onCollapsedChange,
                   )
                 }
             }
@@ -326,8 +334,8 @@ private fun WeekDayGridColumn(
                 }
             }
         }
+        }
     }
-}
 
 private fun formatHourMinute(minutes: Int): String {
     val h = minutes / 60
@@ -403,6 +411,9 @@ private fun BacklogPillSection(
     onDrag: (change: androidx.compose.ui.input.pointer.PointerInputChange, id: Long) -> Unit,
     onDragEnd: () -> Unit,
     onDragCancel: () -> Unit,
+    // 折叠状态由页面外部（最终为首页 MainScreen 层级）持有，页面只读 + 上报翻转请求。
+    collapsed: Boolean,
+    onCollapsedChange: (Boolean) -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -413,54 +424,92 @@ private fun BacklogPillSection(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .clickable { onCollapsedChange(!collapsed) }
+                .testTag("BacklogHeader")
                 .padding(top = 16.dp, bottom = 8.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text("待排期", style = MaterialTheme.typography.titleMedium)
-            Badge { Text("${backlogItems.size}") }
+            // 仅展开态显示向下箭头（"收起"）；折叠态不显示任何图标（也无badge）。
+            if (!collapsed) {
+                Icon(
+                    imageVector = Icons.Default.ArrowDropDown,
+                    contentDescription = "收起",
+                )
+            }
         }
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            backlogItems.forEach { backlogItem ->
-                val isDragging = dragState?.subprojectId == backlogItem.id
-                Surface(
+        if (!collapsed) {
+            // 按父任务归组；每组可独立折叠/展开（页面内临时态，页面销毁即重置）。
+            val groups = BacklogGrouper.group(backlogItems)
+            val collapsedGroups = remember { mutableStateMapOf<Long, Boolean>() }
+            groups.forEach { group ->
+                val groupCollapsed = collapsedGroups[group.taskId] ?: false
+                Row(
                     modifier = Modifier
-                        .testTag("BacklogItem-${backlogItem.id}")
-                        .onGloballyPositioned {
-                            onPillPositioned(
-                                backlogItem.id,
-                                it.boundsInRoot().top,
-                                it.boundsInRoot().left,
-                            )
-                        }
-                        .pointerInput(backlogItem.id) {
-                            detectDragGesturesAfterLongPress(
-                                onDragStart = { onDragStart(backlogItem.id) },
-                                onDrag = { change, _ -> onDrag(change, backlogItem.id) },
-                                onDragEnd = { onDragEnd() },
-                                onDragCancel = { onDragCancel() },
-                            )
-                        }
-                        .clickable { onPillClick(backlogItem.id) }
-                        .then(if (isDragging) Modifier.alpha(0.4f) else Modifier),
-                    shape = MaterialTheme.shapes.small,
-                    color = MaterialTheme.colorScheme.surfaceVariant,
+                        .fillMaxWidth()
+                        .clickable { collapsedGroups[group.taskId] = !groupCollapsed }
+                        .testTag("TaskGroupHeader-${group.taskId}")
+                        .padding(top = 8.dp, bottom = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        Text(
-                            text = backlogItem.title,
-                            style = MaterialTheme.typography.bodyMedium,
+                    Text(group.taskTitle, style = MaterialTheme.typography.titleSmall)
+                    // 仅展开态显示向下箭头（"收起"）；折叠态不显示任何图标，
+                    // 仿照整体 backlog Header 的折叠态。
+                    if (!groupCollapsed) {
+                        Icon(
+                            imageVector = Icons.Default.ArrowDropDown,
+                            contentDescription = "收起",
                         )
-                        backlogItem.estimatedDuration?.let { dur ->
-                            Text(
-                                text = "${dur}分",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
+                    }
+                }
+                if (!groupCollapsed) {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        group.items.forEach { backlogItem ->
+                            val isDragging = dragState?.subprojectId == backlogItem.id
+                            Surface(
+                                modifier = Modifier
+                                    .testTag("BacklogItem-${backlogItem.id}")
+                                    .onGloballyPositioned {
+                                        onPillPositioned(
+                                            backlogItem.id,
+                                            it.boundsInRoot().top,
+                                            it.boundsInRoot().left,
+                                        )
+                                    }
+                                    .pointerInput(backlogItem.id) {
+                                        detectDragGesturesAfterLongPress(
+                                            onDragStart = { onDragStart(backlogItem.id) },
+                                            onDrag = { change, _ -> onDrag(change, backlogItem.id) },
+                                            onDragEnd = { onDragEnd() },
+                                            onDragCancel = { onDragCancel() },
+                                        )
+                                    }
+                                    .clickable { onPillClick(backlogItem.id) }
+                                    .then(if (isDragging) Modifier.alpha(0.4f) else Modifier),
+                                shape = MaterialTheme.shapes.small,
+                                color = MaterialTheme.colorScheme.surfaceVariant,
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                ) {
+                                    Text(
+                                        text = backlogItem.title,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        maxLines = 1,
+                                    )
+                                    backlogItem.estimatedDuration?.let { dur ->
+                                        Text(
+                                            text = "${dur}分",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                 }
