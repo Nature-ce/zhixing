@@ -24,6 +24,13 @@ android {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
+
+        // 后端代理配置（ADR-0001：app 不直调大模型）；token 通过 local.properties 注入，不进版本库
+        debug {
+            buildConfigField("String", "DECOMPOSE_BASE_URL", "\"https://your-proxy.example.com/\"")
+            buildConfigField("String", "DECOMPOSE_TOKEN", "\"your-proxy-token\"")
+            buildConfigField("String", "DECOMPOSE_MODEL", "\"deepseek-chat\"")
+        }
     }
 
     compileOptions {
@@ -37,6 +44,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     packaging {
@@ -75,12 +83,19 @@ dependencies {
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 
+    // Networking (Retrofit + OkHttp + Moshi) — AI 拆解走后端代理（ADR-0001）
+    implementation("com.squareup.retrofit2:retrofit:2.11.0")
+    implementation("com.squareup.retrofit2:converter-moshi:2.11.0")
+    implementation("com.squareup.moshi:moshi-kotlin:1.15.1")
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+
     // Unit tests
     testImplementation("junit:junit:4.13.2")
     testImplementation("androidx.test:core:1.6.1")
     testImplementation("org.assertj:assertj-core:3.26.3")
     testImplementation("androidx.room:room-testing:2.6.1")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
+    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
 
     // Instrumented tests (on-device: Room persistence, DAOs)
     androidTestImplementation("androidx.test:core:1.6.1")
