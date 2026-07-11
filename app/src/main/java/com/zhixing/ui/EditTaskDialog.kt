@@ -1,9 +1,11 @@
 package com.zhixing.ui
 
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -11,11 +13,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import com.zhixing.ui.components.ConfirmButton
+import com.zhixing.ui.components.DismissButton
 
 /**
  * 编辑任务信息对话框。
  *
  * 编辑标题 + 描述，确认后回调。标题不可为空。
+ * 底部使用 [DismissConfirmFooter] 统一按钮样式。
  */
 @Composable
 fun EditTaskDialog(
@@ -29,37 +34,37 @@ fun EditTaskDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("编辑任务") },
+        title = { Text("编辑任务", style = MaterialTheme.typography.titleLarge) },
         text = {
-            androidx.compose.foundation.layout.Column {
+            Column {
                 OutlinedTextField(
                     value = title,
                     onValueChange = { title = it },
                     label = { Text("标题") },
                     singleLine = true,
-                    modifier = Modifier.testTag("EditTaskTitleInput"),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("EditTaskTitleInput"),
                 )
                 OutlinedTextField(
                     value = description,
                     onValueChange = { description = it },
                     label = { Text("描述") },
-                    modifier = Modifier.testTag("EditTaskDescriptionInput"),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("EditTaskDescriptionInput"),
                     minLines = 3,
                 )
             }
         },
         confirmButton = {
-            TextButton(
+            ConfirmButton(
                 onClick = { onConfirm(title, description) },
                 enabled = title.isNotBlank(),
-            ) {
-                Text("确认")
-            }
+            )
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("取消")
-            }
+            DismissButton(onClick = onDismiss)
         },
     )
 }

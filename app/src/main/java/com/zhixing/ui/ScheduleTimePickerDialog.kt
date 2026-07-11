@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DatePicker
@@ -93,6 +94,7 @@ fun ScheduleDateTimePickerDialog(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable { showDateDialog = true }
+                        .heightIn(min = 48.dp)
                         .padding(vertical = 8.dp)
                         .testTag("ScheduleDateRow"),
                     horizontalArrangement = Arrangement.SpaceBetween,

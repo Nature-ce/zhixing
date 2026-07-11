@@ -7,17 +7,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -30,6 +25,8 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.zhixing.data.ai.SettingsStore
 import com.zhixing.data.ai.SettingsStoreFactory
+import com.zhixing.ui.components.ZhixingTopAppBar
+import com.zhixing.ui.theme.LocalZhixingSpacing
 
 /**
  * "AI 拆解设置"页。
@@ -57,13 +54,9 @@ fun SettingsPage(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("AI 拆解设置") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
-                },
+            ZhixingTopAppBar(
+                title = "AI 拆解设置",
+                onBack = onBack,
             )
         },
     ) { innerPadding ->
@@ -71,9 +64,9 @@ fun SettingsPage(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .padding(16.dp)
+                .padding(LocalZhixingSpacing.current.lg)
                 .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+            verticalArrangement = Arrangement.spacedBy(LocalZhixingSpacing.current.lg),
         ) {
             Text(
                 text = "后端代理配置",

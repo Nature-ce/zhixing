@@ -1,17 +1,11 @@
 package com.zhixing.ui
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.background
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -20,8 +14,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.zhixing.ui.components.TimelineDot
+import com.zhixing.ui.components.parseTaskStatus
 
 /**
  * 回顾详情页的"完成时间线"进度图。
@@ -72,31 +67,9 @@ private fun TimelineRow(item: TimelineItem) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        // 状态图标
-        val icon = when (item.icon) {
-            TimelineIcon.CHECK -> "✓"
-            TimelineIcon.ABANDON -> "✕"
-            TimelineIcon.PENDING -> "○"
-        }
-        val iconColor = when (item.icon) {
-            TimelineIcon.CHECK -> MaterialTheme.colorScheme.primary
-            TimelineIcon.ABANDON -> MaterialTheme.colorScheme.error
-            TimelineIcon.PENDING -> MaterialTheme.colorScheme.outlineVariant
-        }
-        Box(
-            modifier = Modifier
-                .size(28.dp)
-                .clip(CircleShape)
-                .background(iconColor.copy(alpha = 0.15f)),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                text = icon,
-                color = iconColor,
-                style = MaterialTheme.typography.titleSmall,
-                textAlign = TextAlign.Center,
-            )
-        }
+        // 状态图标：带语义 contentDescription 的圆点（已完成/已放弃/待办），
+        // 取代纯 unicode 字符（屏幕阅读器可读出状态，满足 WCAG 1.1.1）。
+        TimelineDot(status = parseTaskStatus(item.status))
 
         // 标题
         Text(

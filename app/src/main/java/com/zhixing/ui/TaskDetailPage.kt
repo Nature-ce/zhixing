@@ -40,6 +40,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.zhixing.ai.ServiceProvider
+import com.zhixing.ui.components.ZhixingTopAppBar
 import com.zhixing.data.DecompositionException
 import com.zhixing.data.DecompositionService
 import com.zhixing.data.ai.SettingsStoreFactory
@@ -101,13 +102,9 @@ fun TaskDetailPage(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text(title) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
-                },
+            ZhixingTopAppBar(
+                title = title,
+                onBack = onBack,
                 actions = {
                     IconButton(
                         onClick = { showEditDialog = true },

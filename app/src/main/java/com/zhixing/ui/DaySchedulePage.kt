@@ -12,10 +12,12 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentSize
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -53,6 +55,10 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.zhixing.data.DropScheduleCalculator
+import com.zhixing.ui.theme.LocalZhixingElevation
+import com.zhixing.ui.theme.LocalZhixingRadii
+import com.zhixing.ui.theme.LocalZhixingSpacing
+import com.zhixing.ui.theme.LocalZhixingStatus
 import kotlin.math.roundToInt
 
 /** 语义标记：排期块是否处于终态弱化（变灰）显示。 */
@@ -126,7 +132,7 @@ fun DaySchedulePage(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .padding(start = 16.dp, end = 16.dp, top = 16.dp)
+            .padding(start = LocalZhixingSpacing.current.lg, end = LocalZhixingSpacing.current.lg, top = LocalZhixingSpacing.current.lg)
             .onGloballyPositioned {
                 containerTopPx = it.boundsInRoot().top
                 containerLeftPx = it.boundsInRoot().left
@@ -207,7 +213,7 @@ fun DaySchedulePage(
 
             // 下部：Backlog 区（药丸流，支持点击→排期菜单 + 长拖拖放到格栅）
             if (backlogItems.isNotEmpty()) {
-                Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(LocalZhixingSpacing.current.lg))
                 LongPressDragArea {
                   BacklogPillSection(
                     backlogItems = backlogItems,
@@ -380,10 +386,10 @@ private fun ScheduleBlock(
                 .fillMaxSize()
                 .then(if (dimmed) Modifier.alpha(0.5f) else Modifier),
             color = MaterialTheme.colorScheme.surface,
-            tonalElevation = 1.dp,
-            shape = MaterialTheme.shapes.small,
+            tonalElevation = LocalZhixingElevation.current.low,
+            shape = RoundedCornerShape(LocalZhixingRadii.current.sm),
         ) {
-            Column(modifier = Modifier.padding(4.dp)) {
+            Column(modifier = Modifier.padding(LocalZhixingSpacing.current.xs)) {
                 Text(
                     text = item.subprojectTitle,
                     style = MaterialTheme.typography.bodySmall,
@@ -487,7 +493,8 @@ private fun BacklogPillSection(
                 .fillMaxWidth()
                 .clickable { onCollapsedChange(!collapsed) }
                 .testTag("BacklogHeader")
-                .padding(bottom = 8.dp),
+                .heightIn(min = 48.dp)
+                .padding(bottom = LocalZhixingSpacing.current.sm),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -511,7 +518,8 @@ private fun BacklogPillSection(
                         .fillMaxWidth()
                         .clickable { collapsedGroups[group.taskId] = !groupCollapsed }
                         .testTag("TaskGroupHeader-${group.taskId}")
-                        .padding(top = 8.dp, bottom = 4.dp),
+                        .heightIn(min = 48.dp)
+                        .padding(top = LocalZhixingSpacing.current.sm, bottom = LocalZhixingSpacing.current.xs),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -526,7 +534,7 @@ private fun BacklogPillSection(
                     }
                 }
                 if (!groupCollapsed) {
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(LocalZhixingSpacing.current.sm)) {
                         group.items.forEach { backlogItem ->
                             val isDragging = dragState?.subprojectId == backlogItem.id
                             Surface(
@@ -549,24 +557,25 @@ private fun BacklogPillSection(
                                     }
                                     .clickable { onPillClick(backlogItem.id) }
                                     .then(if (isDragging) Modifier.alpha(0.4f) else Modifier),
-                                shape = MaterialTheme.shapes.small,
-                                color = MaterialTheme.colorScheme.surfaceVariant,
+                                shape = RoundedCornerShape(LocalZhixingRadii.current.pill),
+                                color = LocalZhixingStatus.current.backlogBg,
                             ) {
                                 Row(
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                    modifier = Modifier.padding(horizontal = LocalZhixingSpacing.current.md, vertical = LocalZhixingSpacing.current.sm),
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(LocalZhixingSpacing.current.sm),
                                 ) {
                                     Text(
                                         text = backlogItem.title,
                                         style = MaterialTheme.typography.bodyMedium,
+                                        color = LocalZhixingStatus.current.backlogFg,
                                         maxLines = 1,
                                     )
                                     backlogItem.estimatedDuration?.let { dur ->
                                         Text(
                                             text = "${dur}分",
                                             style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            color = LocalZhixingStatus.current.backlogFg,
                                         )
                                     }
                                 }
@@ -623,10 +632,10 @@ internal fun DragGlimpse(
             }
             // 让卡片宽度自适应内容，不撑满容器
             .wrapContentSize(unbounded = false),
-        shape = MaterialTheme.shapes.small,
+        shape = RoundedCornerShape(LocalZhixingRadii.current.sm),
         color = MaterialTheme.colorScheme.primaryContainer,
-        tonalElevation = 6.dp,
-        shadowElevation = 4.dp,
+        tonalElevation = LocalZhixingElevation.current.high,
+        shadowElevation = LocalZhixingElevation.current.medium,
     ) {
         // testTag 放在 Text 节点上，使其同时携带文本与语义标签，
         // 便于断言时直接命中"带标题的拖拽提示"。
@@ -635,7 +644,7 @@ internal fun DragGlimpse(
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onPrimaryContainer,
             modifier = Modifier
-                .padding(horizontal = 12.dp, vertical = 6.dp)
+                .padding(horizontal = LocalZhixingSpacing.current.md, vertical = LocalZhixingSpacing.current.sm)
                 .testTag("DragGlimpse"),
             maxLines = 1,
         )

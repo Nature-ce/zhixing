@@ -11,8 +11,6 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -32,6 +30,7 @@ import androidx.navigation.navArgument
 import com.zhixing.data.dao.ScheduleDao
 import com.zhixing.data.dao.SubprojectDao
 import com.zhixing.data.dao.TaskDao
+import com.zhixing.ui.components.ZhixingTopAppBar
 
 /**
  * 任务导航图：列表 → 详情。
@@ -61,8 +60,8 @@ fun TaskNavHost(
             // 避免重复按钮（符合 CONTEXT.md 第一次打开的欢迎页体验）。
             Scaffold(
                 topBar = {
-                    TopAppBar(
-                        title = { Text("任务") },
+                    ZhixingTopAppBar(
+                        title = "任务",
                         actions = {
                             IconButton(
                                 onClick = { navController.navigate("settings") },
