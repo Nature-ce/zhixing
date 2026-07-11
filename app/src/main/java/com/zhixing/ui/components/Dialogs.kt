@@ -14,6 +14,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.dp
 import com.zhixing.ui.theme.LocalZhixingSpacing
 
 /**
@@ -65,6 +66,9 @@ fun ZhixingInputDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
+        // 钉死暖白容器 + tonalElevation=0，脱离 M3 AlertDialog 默认 6dp surfaceTint 叠加，杜绝淡蓝紫味。
+        containerColor = MaterialTheme.colorScheme.surface,
+        tonalElevation = 0.dp,
         title = { Text(title, style = MaterialTheme.typography.titleLarge) },
         text = {
             OutlinedTextField(

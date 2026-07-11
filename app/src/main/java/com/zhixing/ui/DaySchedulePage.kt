@@ -1,5 +1,16 @@
 package com.zhixing.ui
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Arrangement
@@ -39,6 +50,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInRoot
@@ -291,6 +304,10 @@ fun DaySchedulePage(
         if (showBlockMenu) {
             AlertDialog(
                 onDismissRequest = { showBlockMenu = false },
+                // M3 AlertDialog 默认 surface + tonalElevation=6dp 强叠加 surfaceTint，
+                // 在浅色 surface 上会被感知为淡紫蓝；钉死暖白容器并归零 tonal 脱离叠加。
+                containerColor = MaterialTheme.colorScheme.surface,
+                tonalElevation = 0.dp,
                 title = { Text("操作") },
                 text = { Text("对这个子项目做什么？") },
                 confirmButton = {
@@ -318,6 +335,8 @@ fun DaySchedulePage(
         if (showBacklogMenu) {
             AlertDialog(
                 onDismissRequest = { showBacklogMenu = false },
+                containerColor = MaterialTheme.colorScheme.surface,
+                tonalElevation = 0.dp,
                 title = { Text("操作") },
                 text = { Text("对这个子项目做什么？") },
                 confirmButton = {
@@ -365,6 +384,19 @@ private fun ScheduleBlock(
     val yPx = grid.yPositionFor(item.startTime, rowHeight.value)
     val hPx = grid.heightFor(item.startTime, item.endTime, rowHeight.value)
 
+    // 已排项放置弹入：首次组合时 scale 从 0.92 → 1.0 轻弹，
+    // 模拟"放入时间格"的活泼手感（原有项目不重复触发）。
+    var placed by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { placed = true }
+    val placeScale by animateFloatAsState(
+        targetValue = if (placed) 1f else 0.92f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioLowBouncy,
+            stiffness = Spring.StiffnessLow,
+        ),
+        label = "blockPlace",
+    )
+
     Box(
         modifier = Modifier
             .offset(y = yPx.dp)
@@ -384,6 +416,7 @@ private fun ScheduleBlock(
         Surface(
             modifier = Modifier
                 .fillMaxSize()
+                .scale(placeScale)
                 .then(if (dimmed) Modifier.alpha(0.5f) else Modifier),
             color = MaterialTheme.colorScheme.surface,
             tonalElevation = LocalZhixingElevation.current.low,
@@ -488,6 +521,11 @@ private fun BacklogPillSection(
             .testTag("BacklogSection")
             .onGloballyPositioned { onBacklogPositioned(it.boundsInRoot().top) },
     ) {
+        val backlineIconRotation by animateFloatAsState(
+            targetValue = if (collapsed) 0f else 180f,
+            animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing),
+            label = "backlogArrow",
+        )
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -499,84 +537,118 @@ private fun BacklogPillSection(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text("待排期", style = MaterialTheme.typography.titleMedium)
-            // 仅展开态显示向下箭头（"收起"）；折叠态不显示任何图标（也无badge）。
-            if (!collapsed) {
-                Icon(
-                    imageVector = Icons.Default.ArrowDropDown,
-                    contentDescription = "收起",
-                )
-            }
+            // 箭头随展开/收起旋转 180°，折叠态箭头朝右、展开态朝下，
+            // spring 旋转替代显隐，让状态变化更连贯、有弹性。
+            Icon(
+                imageVector = Icons.Default.ArrowDropDown,
+                contentDescription = if (collapsed) "展开" else "收起",
+                modifier = Modifier.rotate(backlineIconRotation),
+            )
         }
-        if (!collapsed) {
+        // 展开/收起动画：fade + 竖向展开，采用 tween 缓动替代弹簧——
+        // 无过冲振荡，避免展开时"抖动大"的廉价感（弹簧阻尼低会反复弹）。
+        AnimatedVisibility(
+            visible = !collapsed,
+            enter = fadeIn(animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing)) + expandVertically(
+                animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing),
+            ),
+            exit = fadeOut(animationSpec = tween(durationMillis = 250)) + shrinkVertically(
+                animationSpec = tween(durationMillis = 250),
+            ),
+        ) {
             // 按父任务归组；每组可独立折叠/展开（页面内临时态，页面销毁即重置）。
             val groups = BacklogGrouper.group(backlogItems)
             val collapsedGroups = remember { mutableStateMapOf<Long, Boolean>() }
-            groups.forEach { group ->
-                val groupCollapsed = collapsedGroups[group.taskId] ?: false
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { collapsedGroups[group.taskId] = !groupCollapsed }
-                        .testTag("TaskGroupHeader-${group.taskId}")
-                        .heightIn(min = 48.dp)
-                        .padding(top = LocalZhixingSpacing.current.sm, bottom = LocalZhixingSpacing.current.xs),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(group.taskTitle, style = MaterialTheme.typography.titleSmall)
-                    // 仅展开态显示向下箭头（"收起"）；折叠态不显示任何图标，
-                    // 仿照整体 backlog Header 的折叠态。
-                    if (!groupCollapsed) {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                groups.forEach { group ->
+                    val groupCollapsed = collapsedGroups[group.taskId] ?: false
+                    val groupIconRotation by animateFloatAsState(
+                        targetValue = if (groupCollapsed) 0f else 180f,
+                        animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing),
+                        label = "groupArrow",
+                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { collapsedGroups[group.taskId] = !groupCollapsed }
+                            .testTag("TaskGroupHeader-${group.taskId}")
+                            .heightIn(min = 48.dp)
+                            .padding(top = LocalZhixingSpacing.current.sm, bottom = LocalZhixingSpacing.current.xs),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(group.taskTitle, style = MaterialTheme.typography.titleSmall)
                         Icon(
                             imageVector = Icons.Default.ArrowDropDown,
-                            contentDescription = "收起",
+                            contentDescription = if (groupCollapsed) "展开" else "收起",
+                            modifier = Modifier.rotate(groupIconRotation),
                         )
                     }
-                }
-                if (!groupCollapsed) {
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(LocalZhixingSpacing.current.sm)) {
-                        group.items.forEach { backlogItem ->
-                            val isDragging = dragState?.subprojectId == backlogItem.id
-                            Surface(
-                                modifier = Modifier
-                                    .testTag("BacklogItem-${backlogItem.id}")
-                                    .onGloballyPositioned {
-                                        onPillPositioned(
-                                            backlogItem.id,
-                                            it.boundsInRoot().top,
-                                            it.boundsInRoot().left,
-                                        )
-                                    }
-                                    .pointerInput(backlogItem.id) {
-                                        detectDragGesturesAfterLongPress(
-                                            onDragStart = { onDragStart(backlogItem.id) },
-                                            onDrag = { change, _ -> onDrag(change, backlogItem.id) },
-                                            onDragEnd = { onDragEnd() },
-                                            onDragCancel = { onDragCancel() },
-                                        )
-                                    }
-                                    .clickable { onPillClick(backlogItem.id) }
-                                    .then(if (isDragging) Modifier.alpha(0.4f) else Modifier),
-                                shape = RoundedCornerShape(LocalZhixingRadii.current.pill),
-                                color = LocalZhixingStatus.current.backlogBg,
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = LocalZhixingSpacing.current.md, vertical = LocalZhixingSpacing.current.sm),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(LocalZhixingSpacing.current.sm),
+                    // 任务组折叠/展开：同样用 tween 缓动，与顶层 Backlog 折叠手感一致、无抖动。
+                    AnimatedVisibility(
+                        visible = !groupCollapsed,
+                        enter = fadeIn(animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing)) + expandVertically(
+                            animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing),
+                        ),
+                        exit = fadeOut(animationSpec = tween(durationMillis = 250)) + shrinkVertically(
+                            animationSpec = tween(durationMillis = 250),
+                        ),
+                    ) {
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(LocalZhixingSpacing.current.sm)) {
+                            group.items.forEach { backlogItem ->
+                                val isDragging = dragState?.subprojectId == backlogItem.id
+                                // 拖拽启动时药丸 scale 微放大 + 40% 透明，
+                                // 轻弹反馈"被拿起"的重量感（LowBouncy 轻弹不抖）。
+                                val pillScale by animateFloatAsState(
+                                    targetValue = if (isDragging) 1.05f else 1f,
+                                    animationSpec = spring(
+                                        dampingRatio = Spring.DampingRatioLowBouncy,
+                                        stiffness = Spring.StiffnessLow,
+                                    ),
+                                    label = "pillScale",
+                                )
+                                Surface(
+                                    modifier = Modifier
+                                        .testTag("BacklogItem-${backlogItem.id}")
+                                        .onGloballyPositioned {
+                                            onPillPositioned(
+                                                backlogItem.id,
+                                                it.boundsInRoot().top,
+                                                it.boundsInRoot().left,
+                                            )
+                                        }
+                                        .pointerInput(backlogItem.id) {
+                                            detectDragGesturesAfterLongPress(
+                                                onDragStart = { onDragStart(backlogItem.id) },
+                                                onDrag = { change, _ -> onDrag(change, backlogItem.id) },
+                                                onDragEnd = { onDragEnd() },
+                                                onDragCancel = { onDragCancel() },
+                                            )
+                                        }
+                                        .clickable { onPillClick(backlogItem.id) }
+                                        .scale(pillScale)
+                                        .then(if (isDragging) Modifier.alpha(0.4f) else Modifier),
+                                    shape = RoundedCornerShape(LocalZhixingRadii.current.pill),
+                                    color = LocalZhixingStatus.current.backlogBg,
                                 ) {
-                                    Text(
-                                        text = backlogItem.title,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = LocalZhixingStatus.current.backlogFg,
-                                        maxLines = 1,
-                                    )
-                                    backlogItem.estimatedDuration?.let { dur ->
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = LocalZhixingSpacing.current.md, vertical = LocalZhixingSpacing.current.sm),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(LocalZhixingSpacing.current.sm),
+                                    ) {
                                         Text(
-                                            text = "${dur}分",
-                                            style = MaterialTheme.typography.labelSmall,
+                                            text = backlogItem.title,
+                                            style = MaterialTheme.typography.bodyMedium,
                                             color = LocalZhixingStatus.current.backlogFg,
+                                            maxLines = 1,
                                         )
+                                        backlogItem.estimatedDuration?.let { dur ->
+                                            Text(
+                                                text = "${dur}分",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = LocalZhixingStatus.current.backlogFg,
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -624,6 +696,17 @@ internal fun DragGlimpse(
     offsetX: Float,
     offsetY: Float,
 ) {
+    // 拖拽幻影出现时从 0.8 → 1.0 弹出，轻弹反馈"幻影从指尖浮现"。
+    var appeared by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { appeared = true }
+    val glimpseScale by animateFloatAsState(
+        targetValue = if (appeared) 1f else 0.8f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioLowBouncy,
+            stiffness = Spring.StiffnessLow,
+        ),
+        label = "glimpseAppear",
+    )
     Surface(
         modifier = Modifier
             // 绝对定位：容器左上角为原点，移到手指位置
@@ -631,10 +714,12 @@ internal fun DragGlimpse(
                 IntOffset(offsetX.roundToInt(), offsetY.roundToInt())
             }
             // 让卡片宽度自适应内容，不撑满容器
-            .wrapContentSize(unbounded = false),
+            .wrapContentSize(unbounded = false)
+            .scale(glimpseScale),
         shape = RoundedCornerShape(LocalZhixingRadii.current.sm),
+        // 拖拽幻影容器钉死 primaryContainer（暖薄荷浅底）；
+        // tonalElevation 归零——原 high=6dp 叠加 surfaceTint 最强，易泛冷蓝紫。
         color = MaterialTheme.colorScheme.primaryContainer,
-        tonalElevation = LocalZhixingElevation.current.high,
         shadowElevation = LocalZhixingElevation.current.medium,
     ) {
         // testTag 放在 Text 节点上，使其同时携带文本与语义标签，

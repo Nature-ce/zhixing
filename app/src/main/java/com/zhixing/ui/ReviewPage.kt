@@ -59,6 +59,8 @@ fun ReviewPage(
 private fun ReviewTaskCard(item: TaskListItem, onClick: () -> Unit = {}) {
     Card(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).testTag("ReviewTaskCard-${item.id}"),
+        // 钉死暖白容器，脱离 elevation overlay 的 surfaceTint 叠加，杜绝淡蓝紫味渗入卡面。
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
     ) {
         Column(modifier = Modifier.padding(16.dp)) {

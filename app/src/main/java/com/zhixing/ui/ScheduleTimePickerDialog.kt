@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DatePicker
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Tab
@@ -67,6 +68,8 @@ fun ScheduleDateTimePickerDialog(
         )
         DatePickerDialog(
             onDismissRequest = { showDateDialog = false },
+            // DatePickerDialog 仅支持 tonalElevation（不支持 containerColor）；归零即可脱离 surfaceTint 叠加。
+            tonalElevation = 0.dp,
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -86,6 +89,8 @@ fun ScheduleDateTimePickerDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
+        containerColor = MaterialTheme.colorScheme.surface,
+        tonalElevation = 0.dp,
         title = { Text("排期") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {

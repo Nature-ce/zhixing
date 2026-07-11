@@ -189,11 +189,21 @@ fun ZhixingCard(
     val radii = LocalZhixingRadii.current
     val elevation = LocalZhixingElevation.current
     val shape = RoundedCornerShape(radii.md)
+    // 卡片容器钉死暖白 surface，tonalElevation 归零——
+    // 脱离 elevation overlay 的 surfaceTint 叠加，杜绝淡蓝紫味渗入卡面。
+    // 仅保留 shadowElevation 表达层级（阴影不受色调影响）。
+    val colors = CardDefaults.cardColors(
+        containerColor = MaterialTheme.colorScheme.surface,
+    )
+    val elevationParams = CardDefaults.cardElevation(
+        defaultElevation = elevation.medium,
+    )
     if (onClick != null) {
         Card(
             modifier = modifier,
             shape = shape,
-            elevation = CardDefaults.cardElevation(defaultElevation = elevation.medium),
+            colors = colors,
+            elevation = elevationParams,
             onClick = onClick,
         ) {
             Column(modifier = Modifier.padding(contentPadding), content = content)
@@ -202,7 +212,8 @@ fun ZhixingCard(
         Card(
             modifier = modifier,
             shape = shape,
-            elevation = CardDefaults.cardElevation(defaultElevation = elevation.medium),
+            colors = colors,
+            elevation = elevationParams,
         ) {
             Column(modifier = Modifier.padding(contentPadding), content = content)
         }

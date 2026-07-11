@@ -13,6 +13,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.dp
 import com.zhixing.ui.components.ConfirmButton
 import com.zhixing.ui.components.DismissButton
 
@@ -34,6 +35,8 @@ fun EditTaskDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
+        containerColor = MaterialTheme.colorScheme.surface,
+        tonalElevation = 0.dp,
         title = { Text("编辑任务", style = MaterialTheme.typography.titleLarge) },
         text = {
             Column {

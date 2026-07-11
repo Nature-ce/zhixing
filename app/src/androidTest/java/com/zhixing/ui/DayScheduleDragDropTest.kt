@@ -135,8 +135,8 @@ class DayScheduleDragDropTest {
         composeRule.onAllNodesWithText("选书目", useUnmergedTree = true).assertCountEquals(0)
         // 另一组不受影响
         composeRule.onNodeWithText("挑礼物", useUnmergedTree = true).assertIsDisplayed()
-        // 折叠态组头不显示向右箭头（"展开"），仿照整体 backlog Header
-        composeRule.onAllNodesWithContentDescription("展开", useUnmergedTree = true).assertCountEquals(0)
+        // 折叠态组头箭头旋转为"展开"方向并保留，让可折叠性一目了然
+        composeRule.onAllNodesWithContentDescription("展开", useUnmergedTree = true).assertCountEquals(1)
 
         // 再次点击 → 展开恢复
         composeRule.onNodeWithTag("TaskGroupHeader-10", useUnmergedTree = true).performClick()
@@ -285,9 +285,10 @@ class DayScheduleDragDropTest {
         composeRule.onAllNodesWithText("选书目", useUnmergedTree = true).assertCountEquals(0)
         composeRule.onAllNodesWithText("划重点", useUnmergedTree = true).assertCountEquals(0)
 
-        // header 仍在，且折叠态无"展开"向右箭头（行为 #2）
+        // header 仍在；箭头始终可见并通过旋转表达方向（折叠态朝右 = "展开"），
+        // 不再"折叠态无可发现性指示符"，让可折叠性一目了然。
         composeRule.onNodeWithTag("BacklogHeader", useUnmergedTree = true).assertIsDisplayed()
-        composeRule.onAllNodesWithContentDescription("展开", useUnmergedTree = true).assertCountEquals(0)
+        composeRule.onAllNodesWithContentDescription("展开", useUnmergedTree = true).assertCountEquals(1)
     }
 
     @Test

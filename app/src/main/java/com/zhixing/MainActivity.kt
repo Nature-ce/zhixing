@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
@@ -86,7 +87,12 @@ private fun MainScreen() {
     var collapsedBacklog by remember { mutableStateOf(false) }
     Scaffold(
         bottomBar = {
-            NavigationBar {
+            NavigationBar(
+                // M3 NavigationBar 默认 surface + tonalElevation=3dp 叠加 surfaceTint；
+                // 直接钉死暖白容器并归零 tonal，杜绝 elevation overlay 引入冷蓝紫味。
+                containerColor = MaterialTheme.colorScheme.surface,
+                tonalElevation = 0.dp,
+            ) {
                 val navBackStackEntry by navController.currentBackStackEntryAsState()
                 val currentDestination = navBackStackEntry?.destination
                 tabs.forEach { tab ->
