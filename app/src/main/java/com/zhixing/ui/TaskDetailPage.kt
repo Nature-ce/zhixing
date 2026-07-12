@@ -122,6 +122,9 @@ fun TaskDetailPage(
                     DropdownMenu(
                         expanded = menuExpanded,
                         onDismissRequest = { menuExpanded = false },
+                        // 钉死暖白容器 + tonalElevation=0，脱离 DropdownMenu 默认 3dp surfaceTint 叠加，杜绝淡蓝紫味。
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        tonalElevation = 0.dp,
                     ) {
                         DropdownMenuItem(
                             text = { Text("放弃任务") },
@@ -226,6 +229,9 @@ fun TaskDetailPage(
     if (pendingAction != null) {
         AlertDialog(
             onDismissRequest = { pendingAction = null },
+            // 钉死暖白容器 + tonalElevation=0，脱离 M3 AlertDialog 默认 6dp surfaceTint 叠加，杜绝淡蓝紫味。
+            containerColor = MaterialTheme.colorScheme.surface,
+            tonalElevation = 0.dp,
             title = { Text("确认操作") },
             text = { Text("确定要执行此操作吗？") },
             confirmButton = {
