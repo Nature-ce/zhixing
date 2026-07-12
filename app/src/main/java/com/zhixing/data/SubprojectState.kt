@@ -5,7 +5,7 @@ package com.zhixing.data
  *
  * 允许的流转:
  *   - backlog     -> 已排期 / 已完成 / 已放弃
- *   - 已排期      -> 已完成 / 已放弃
+ *   - 已排期      -> 已完成 / 已放弃 / backlog（误排期撤销，从日程表回退）
  *   - 已完成      -> 已排期（误操作撤销）
  *   - 已放弃      -> (终态，不可流转)
  */
@@ -13,7 +13,7 @@ object SubprojectState {
 
     private val ALLOWED: Map<String, Set<String>> = mapOf(
         "backlog" to setOf("已排期", "已完成", "已放弃"),
-        "已排期" to setOf("已完成", "已放弃"),
+        "已排期" to setOf("已完成", "已放弃", "backlog"),
         "已完成" to setOf("已排期"),
         "已放弃" to emptySet(),
     )

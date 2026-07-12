@@ -4,6 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.zhixing.data.ScheduleConflictDetector
+import com.zhixing.data.SubprojectState
+import com.zhixing.data.TaskStatus
 import com.zhixing.data.dao.ScheduleDao
 import com.zhixing.data.dao.SubprojectDao
 import com.zhixing.data.dao.TaskDao
@@ -100,6 +102,67 @@ class WeekScheduleViewModel(
         subprojectDao.updateSubprojectStatus(subprojectId, "已排期")
         return true
     }
+
+    /**
+     * 标记子项目"已完成"。先验证流转合法性，再写状态 + 完成时间戳；
+     * 若该任务的所有子项目都进入终态，任务自动变"已完成"。
+     */
+    suspend fun completeSubproject(subprojectId: Long): Boolean {
+        val all = subprojectDao.getAllSubprojects().first()
+        val current = all.firstOrNull { it.id == subprojectId } ?: return false
+        val newStatus = try {
+            SubprojectState.transition(current.status, "已完成")
+        } catch (e: IllegalArgumentException) {
+            return false
+        }
+        subprojectDao.updateSubprojectStatusAndCompletedAt(subprojectId, newStatus, System.currentTimeMillis())
+        maybeAutoCompleteTask(current.taskId, all, subprojectId, newStatus)
+        return true
+    }
+
+    /**
+     * 标记子项目"已放弃"。先验证流转合法性，再写状态 + 完成时间戳；
+     * 若该任务的所有子项目都进入终态，任务自动变"已完成"。
+     */
+    suspend fun abandonSubproject(subprojectId: Long): Boolean {
+        val all = subprojectDao.getAllSubprojects().first()
+        val current = all.firstOrNull { it.id == subprojectId } ?: return false
+        val newStatus = try {
+            SubprojectState.transition(current.status, "已放弃")
+        } catch (e: IllegalArgumentException) {
+            return false
+        }
+        subprojectDao.updateSubprojectStatusAndCompletedAt(subprojectId, newStatus, System.currentTimeMillis())
+        maybeAutoCompleteTask(current.taskId, all, subprojectId, newStatus)
+        return true
+    }
+
+    /**
+     * 回退已排期的子项目到 backlog。仅当"已排期"才允许：删除排期记录 + 状态改回 backlog。
+     */
+    suspend fun unscheduleSubproject(subprojectId: Long): Boolean {
+        val current = subprojectDao.getAllSubprojects().first().firstOrNull { it.id == subprojectId }
+            ?: return false
+        val newStatus = try {
+            SubprojectState.transition(current.status, "backlog")
+        } catch (e: IllegalArgumentException) {
+            return false
+        }
+        scheduleDao.clearScheduleForSubproject(subprojectId)
+        subprojectDao.updateSubprojectStatus(subprojectId, newStatus)
+        return true
+    }
+
+    /** 任务自动完成：所有子项目终态 → 任务变"已完成"（仅在任务本身还不是终态时回写）。 */
+    private suspend fun maybeAutoCompleteTask(taskId: Long, all: List<com.zhixing.data.entity.SubprojectEntity>, changedId: Long, newStatus: String) {
+        val task = taskDao.getTaskById(taskId) ?: return
+        val after = all.map { if (it.id == changedId) it.copy(status = newStatus) else it }
+        if (task.status !in TERMINAL && TaskStatus.resolve(after.map { it.status }) == "已完成") {
+            taskDao.updateTaskStatus(taskId, "已完成")
+        }
+    }
+
+    private val TERMINAL = setOf("已完成", "已放弃")
 }
 
 class WeekScheduleViewModelFactory(

@@ -4,8 +4,10 @@ import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import com.zhixing.ui.theme.ZhixingTheme
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.within
@@ -87,7 +89,65 @@ class WeekScheduleTimeGridTest {
         }
 
         composeRule.onNodeWithText("选书目", useUnmergedTree = true).assertIsDisplayed()
-        composeRule.onNodeWithText("11:00 - 12:00", useUnmergedTree = true).assertIsDisplayed()
+        composeRule.onNodeWithText("11:00-12:00", useUnmergedTree = true).assertIsDisplayed()
+    }
+
+    @Test
+    fun click_week_block_then_unschedule_invokes_onUnscheduleSubproject() {
+        // 周视图完整回退流程：点击已排期块 → 菜单「回退」→ onUnscheduleSubproject 被调用。
+        val itemsByDate = mapOf(
+            "2026-07-06" to listOf(
+                ScheduleItem(id = 1, subprojectTitle = "选书目", startTime = 600, endTime = 660,
+                    subprojectStatus = "已排期", subprojectId = 1),
+            ),
+        )
+
+        var unscheduledId: Long? = null
+
+        composeRule.setContent {
+            ZhixingTheme {
+                WeekSchedulePage(
+                    weekDates = weekDates,
+                    itemsByDate = itemsByDate,
+                    onUnscheduleSubproject = { unscheduledId = it },
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("WeekItem-1", useUnmergedTree = true).performClick()
+        composeRule.onNodeWithText("回退").performClick()
+
+        composeRule.waitUntil(timeoutMillis = 5_000) { unscheduledId != null }
+        assertThat(unscheduledId).isEqualTo(1L)
+    }
+
+    @Test
+    fun click_week_block_menu_shows_complete_and_abandon_too() {
+        // 周视图块菜单应同时提供完成 / 放弃 / 回退三个操作。
+        val itemsByDate = mapOf(
+            "2026-07-06" to listOf(
+                ScheduleItem(id = 1, subprojectTitle = "选书目", startTime = 600, endTime = 660,
+                    subprojectStatus = "已排期", subprojectId = 1),
+            ),
+        )
+
+        composeRule.setContent {
+            ZhixingTheme {
+                WeekSchedulePage(
+                    weekDates = weekDates,
+                    itemsByDate = itemsByDate,
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("WeekItem-1", useUnmergedTree = true).performClick()
+
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodesWithText("完成").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithText("完成").assertIsDisplayed()
+        composeRule.onNodeWithText("放弃").assertIsDisplayed()
+        composeRule.onNodeWithText("回退").assertIsDisplayed()
     }
 
     @Test

@@ -49,6 +49,12 @@ class SubprojectStateTest {
     }
 
     @Test
+    fun `scheduled can revert back to backlog`() {
+        // 误排期撤销：已排期的子项目从日程表回退到 backlog。
+        assertThat(SubprojectState.transition("已排期", "backlog")).isEqualTo("backlog")
+    }
+
+    @Test
     fun `abandoned cannot transition to completed`() {
         assertThatThrownBy { SubprojectState.transition("已放弃", "已完成") }
             .isInstanceOf(IllegalArgumentException::class.java)

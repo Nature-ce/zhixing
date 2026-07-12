@@ -12,11 +12,13 @@ import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -55,8 +57,8 @@ class DaySchedulePageTest {
 
         composeRule.onNodeWithText("选书目").assertIsDisplayed()
         composeRule.onNodeWithText("划重点").assertIsDisplayed()
-        composeRule.onNodeWithText("10:00 - 11:00").assertIsDisplayed()
-        composeRule.onNodeWithText("09:00 - 10:00").assertIsDisplayed()
+        composeRule.onNodeWithText("10:00-11:00").assertIsDisplayed()
+        composeRule.onNodeWithText("09:00-10:00").assertIsDisplayed()
     }
 
     @Test
@@ -217,7 +219,8 @@ class DaySchedulePageTest {
     }
 
     @Test
-    fun schedule_time_picker_shows_tabs_and_initial_state_enabled() {
+    fun schedule_time_picker_shows_start_picker_and_end_preview() {
+        // 结束时间 = 开始 + 建议时长（默认 60min），自动回显，无需 tab 切换结束滚轮。
         composeRule.setContent {
             ZhixingTheme {
                 ScheduleTimePickerDialog(
@@ -227,17 +230,16 @@ class DaySchedulePageTest {
             }
         }
 
-        // Tab 结构 + 初始"开始"选中
-        composeRule.onNodeWithTag("StartTab").assertIsDisplayed()
-        composeRule.onNodeWithTag("EndTab").assertIsDisplayed()
+        // 仅展示开始时间选择器，无"结束"tab / 结束滚轮
         composeRule.onNodeWithTag("StartTimePicker").assertIsDisplayed()
+        composeRule.onAllNodesWithTag("StartTab").assertCountEquals(0)
+        composeRule.onAllNodesWithTag("EndTab").assertCountEquals(0)
 
-        // 初始 09:00-10:00 合法，确认按钮 enabled
+        // 结束预览 = 09:00 + 60min = 10:00
+        composeRule.onNodeWithTag("ScheduleEndTimePreview").assertTextEquals("10:00")
+
+        // 初始合法，确认按钮 enabled
         composeRule.onNodeWithTag("ConfirmScheduleTime").assertIsEnabled()
-
-        // 切到"结束"标签 → 结束时间选择器出现
-        composeRule.onNodeWithTag("EndTab").performClick()
-        composeRule.onNodeWithTag("EndTimePicker").assertIsDisplayed()
     }
 
     @Test
@@ -262,7 +264,7 @@ class DaySchedulePageTest {
 
     @Test
     fun overdue_item_shows_in_time_grid() {
-        // 时间格栅中逾期项仍渲染标题 + 时间段，仅做弱化（灰色）处理。
+        // 时间格栅中逾期项仍渲染标题 + 时间段；未弱化（保持黑色），与"已完成/已放弃"区分。
         val items = listOf(
             ScheduleItem(id = 1, subprojectTitle = "选书目", startTime = 600, endTime = 660, subprojectStatus = "已排期", isOverdue = true),
         )
@@ -277,7 +279,31 @@ class DaySchedulePageTest {
         }
 
         composeRule.onNodeWithText("选书目").assertIsDisplayed()
-        composeRule.onNodeWithText("10:00 - 11:00").assertIsDisplayed()
+        composeRule.onNodeWithText("10:00-11:00").assertIsDisplayed()
+        // 逾期项：弱化（灰）+ 灰色小闹钟图标
+        composeRule.onNodeWithContentDescription("逾期").assertIsDisplayed()
+        composeRule.onNodeWithTag("ScheduleBlock-1", useUnmergedTree = true)
+            .assert(SemanticsMatcher.expectValue(ScheduleBlockDimmedKey, true))
+    }
+
+    @Test
+    fun non_overdue_item_shows_no_overdue_icon() {
+        // 未逾期的已排期项，不该出现逾期图标。
+        val items = listOf(
+            ScheduleItem(id = 1, subprojectTitle = "选书目", startTime = 600, endTime = 660, subprojectStatus = "已排期", isOverdue = false),
+        )
+
+        composeRule.setContent {
+            ZhixingTheme {
+                DaySchedulePage(
+                    date = "2026-07-08",
+                    scheduleItems = items,
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("选书目").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("逾期").assertDoesNotExist()
     }
 
     @Test
@@ -410,6 +436,34 @@ class DaySchedulePageTest {
     }
 
     @Test
+    fun click_schedule_block_then_unschedule_invokes_onUnscheduleSubproject() {
+        // 完整的回退流程：点击已排期块 → 菜单「回退」→ onUnscheduleSubproject 被调用。
+        val items = listOf(
+            ScheduleItem(id = 10, subprojectTitle = "选书目", startTime = 600, endTime = 660,
+                subprojectStatus = "已排期", subprojectId = 1),
+        )
+
+        var unscheduledId: Long? = null
+
+        composeRule.setContent {
+            ZhixingTheme {
+                DaySchedulePage(
+                    date = "2026-07-08",
+                    scheduleItems = items,
+                    onUnscheduleSubproject = { unscheduledId = it },
+                )
+            }
+        }
+
+        // 点击排期块 → 弹出操作菜单 → 点击「回退」
+        composeRule.onNodeWithTag("ScheduleBlock-10").performClick()
+        composeRule.onNodeWithText("回退").performClick()
+
+        composeRule.waitUntil(timeoutMillis = 5_000) { unscheduledId != null }
+        assertThat(unscheduledId).isEqualTo(1L)
+    }
+
+    @Test
     fun click_schedule_block_then_abandon_invokes_onAbandonSubproject() {
         val items = listOf(
             ScheduleItem(id = 10, subprojectTitle = "选书目", startTime = 600, endTime = 660,
@@ -464,7 +518,8 @@ class DaySchedulePageTest {
     @Test
     fun confirm_schedule_from_backlog_menu_invokes_onScheduleSubproject() {
         // 完整排期流程：点 backlog 子项目 → 菜单「排期」→ 排期对话框确认 → onScheduleSubproject 被调用。
-        val backlog = listOf(BacklogItem(id = 2, title = "划重点"))
+        // 子项目建议时长 60min，故结束 = 开始 09:00 + 60min = 10:00。
+        val backlog = listOf(BacklogItem(id = 2, title = "划重点", estimatedDuration = 60))
 
         var scheduledArgs: Triple<Long, Int, Int>? = null
 
@@ -496,6 +551,24 @@ class DaySchedulePageTest {
         assertThat(scheduledArgs?.first).isEqualTo(2L)
         assertThat(scheduledArgs?.second).isEqualTo(540)   // 09:00
         assertThat(scheduledArgs?.third).isEqualTo(600)    // 10:00
+    }
+
+    @Test
+    fun short_item_shows_time_inline_to_the_right_of_title() {
+        // 10min 项目也应把时间段显示在标题右侧同行（新格式 HH:MM-HH:MM），
+        // 让用户一眼看出该时段被何项目占据。
+        val items = listOf(
+            ScheduleItem(id = 1, subprojectTitle = "选书目", startTime = 600, endTime = 610),
+        )
+
+        composeRule.setContent {
+            ZhixingTheme {
+                DaySchedulePage(date = "2026-07-08", scheduleItems = items)
+            }
+        }
+
+        composeRule.onNodeWithText("选书目").assertIsDisplayed()
+        composeRule.onNodeWithText("10:00-10:10").assertIsDisplayed()
     }
 
     @Test

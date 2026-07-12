@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -33,6 +34,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Circle
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -97,6 +99,7 @@ fun DaySchedulePage(
     onScheduleSubproject: (subprojectId: Long, startTime: Int, endTime: Int) -> Unit = { _, _, _ -> },
     onCompleteSubproject: (subprojectId: Long) -> Unit = {},
     onAbandonSubproject: (subprojectId: Long) -> Unit = {},
+    onUnscheduleSubproject: (subprojectId: Long) -> Unit = {},
     // 折叠状态由首页 MainScreen 层级持有（与 isScheduleWeekView 同级），
     // 跨 tab / 日周切换时不会随 composition 销毁而丢失。页面本身只读 + 上报翻转请求。
     collapsed: Boolean = false,
@@ -311,21 +314,28 @@ fun DaySchedulePage(
                 title = { Text("操作") },
                 text = { Text("对这个子项目做什么？") },
                 confirmButton = {
-                    TextButton(
-                        onClick = {
-                            onCompleteSubproject(menuTargetId)
-                            showBlockMenu = false
-                        },
-                        modifier = Modifier.testTag("CompleteSubprojectConfirm"),
-                    ) { Text("完成") }
-                },
-                dismissButton = {
-                    TextButton(
-                        onClick = {
-                            onAbandonSubproject(menuTargetId)
-                            showBlockMenu = false
-                        },
-                    ) { Text("放弃") }
+                    Row {
+                        TextButton(
+                            onClick = {
+                                onUnscheduleSubproject(menuTargetId)
+                                showBlockMenu = false
+                            },
+                            modifier = Modifier.testTag("UnscheduleSubprojectConfirm"),
+                        ) { Text("回退") }
+                        TextButton(
+                            onClick = {
+                                onCompleteSubproject(menuTargetId)
+                                showBlockMenu = false
+                            },
+                            modifier = Modifier.testTag("CompleteSubprojectConfirm"),
+                        ) { Text("完成") }
+                        TextButton(
+                            onClick = {
+                                onAbandonSubproject(menuTargetId)
+                                showBlockMenu = false
+                            },
+                        ) { Text("放弃") }
+                    }
                 },
             )
         }
@@ -422,12 +432,27 @@ private fun ScheduleBlock(
             tonalElevation = LocalZhixingElevation.current.low,
             shape = RoundedCornerShape(LocalZhixingRadii.current.sm),
         ) {
-            Column(modifier = Modifier.padding(LocalZhixingSpacing.current.xs)) {
+            Row(
+                modifier = Modifier.padding(LocalZhixingSpacing.current.xs),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                // 逾期项：弱化（灰）+ 灰色圆形图标，与"已终结"区分（后者无图标）。
+                if (item.isOverdue) {
+                    Icon(
+                        imageVector = Icons.Filled.Circle,
+                        contentDescription = "逾期",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(8.dp),
+                    )
+                    Spacer(modifier = Modifier.width(2.dp))
+                }
+                // 标题占满剩余空间（weight），放不下的省略号截断；时间段始终完整显示在右侧同行。
                 Text(
                     text = item.subprojectTitle,
                     style = MaterialTheme.typography.bodySmall,
                     color = textColor,
                     maxLines = 1,
+                    modifier = Modifier.weight(1f),
                 )
                 Text(
                     text = formatTimeRange(item.startTime, item.endTime),
@@ -438,19 +463,6 @@ private fun ScheduleBlock(
             }
         }
     }
-}
-
-/**
- * 将从 0 点起的分钟数转为 "HH:MM" 格式时间段。
- */
-private fun formatTimeRange(startMinutes: Int, endMinutes: Int): String {
-    return "${formatTime(startMinutes)} - ${formatTime(endMinutes)}"
-}
-
-private fun formatTime(minutes: Int): String {
-    val hours = minutes / 60
-    val mins = minutes % 60
-    return "%02d:%02d".format(hours, mins)
 }
 
 /** 拖放中的状态：被拖的子项目 id + 手指在 root 坐标中的像素坐标。 */

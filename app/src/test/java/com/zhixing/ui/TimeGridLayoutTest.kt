@@ -54,6 +54,30 @@ class TimeGridLayoutTest {
     }
 
     @Test
+    fun heightFor_ten_min_clamps_to_minHeightRows() {
+        // 10min < 粒度(30min)：应贴到 minHeightRows 地板（0.75 行 = 36f），而非占满整行 48f。
+        assertThat(grid.heightFor(600, 610, rowHeight)).isEqualTo(36f)
+    }
+
+    @Test
+    fun heightFor_twenty_eight_min_keeps_proportion_between_floor_and_one_row() {
+        // 28min → 28/30 ≈ 0.933 行 ≈ 44.8f，体现"地板以上仍保留比例差异"，而非全被压成 36f。
+        assertThat(grid.heightFor(600, 628, rowHeight)).isEqualTo(44.8f)
+    }
+
+    @Test
+    fun heightFor_zero_duration_clamps_to_floor() {
+        // 退化 0min 时长也应受 minHeightRows 兜底，与 10min 同高 36f。
+        assertThat(grid.heightFor(600, 600, rowHeight)).isEqualTo(36f)
+    }
+
+    @Test
+    fun yPositionFor_09_10_sits_fractionally_into_row() {
+        // 09:10 = 550min；(550-360)/30 = 6.333… 行 = 304f（不再整除吸附到 6 行 = 288f）。
+        assertThat(grid.yPositionFor(550, rowHeight)).isEqualTo(304f)
+    }
+
+    @Test
     fun labelForRow_shows_half_hour_ticks() {
         // 第 0 行 = 06:00
         assertThat(grid.labelForRow(0)).isEqualTo("06:00")

@@ -12,7 +12,7 @@ import org.junit.Test
  * instrumented 测试：DaySchedulePage 时间格栅渲染。
  *
  * 验证：
- *   - 时间段项目显示时间文字（10:00 - 11:00）
+ *   - 时间段项目显示时间文字（10:00-11:00）
  *   - 时间轴标签（06:00、10:00）可见
  *   - 无项目时显示空状态
  */
@@ -37,7 +37,7 @@ class DayScheduleTimeGridTest {
         }
 
         composeRule.onNodeWithText("选书目").assertIsDisplayed()
-        composeRule.onNodeWithText("10:00 - 11:00").assertIsDisplayed()
+        composeRule.onNodeWithText("10:00-11:00").assertIsDisplayed()
     }
 
     @Test

@@ -26,6 +26,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -34,11 +36,14 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Circle
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
@@ -85,6 +90,9 @@ fun WeekSchedulePage(
     itemsByDate: Map<String, List<ScheduleItem>>,
     backlogItems: List<BacklogItem> = emptyList(),
     onScheduleSubproject: (subprojectId: Long, date: String, startTime: Int, endTime: Int) -> Unit = { _, _, _, _ -> },
+    onCompleteSubproject: (subprojectId: Long) -> Unit = {},
+    onAbandonSubproject: (subprojectId: Long) -> Unit = {},
+    onUnscheduleSubproject: (subprojectId: Long) -> Unit = {},
     // 折叠状态由首页 MainScreen 层级持有（与 isScheduleWeekView 同级），
     // 跨 tab / 日周切换时不会随 composition 销毁而丢失。页面本身只读 + 上报翻转请求。
     collapsed: Boolean = false,
@@ -122,6 +130,14 @@ fun WeekSchedulePage(
     // 页面根容器（overlay 层）在 root 中的坐标，供 glimpse 把 root 像素转回容器本地。
     var containerTopPx by remember { mutableStateOf(0f) }
     var containerLeftPx by remember { mutableStateOf(0f) }
+
+    // 已排期项目块的操作菜单（完成 / 放弃 / 回退）。
+    var showBlockMenu by remember { mutableStateOf(false) }
+    var menuTargetId by remember { mutableStateOf(0L) }
+    val onBlockClick: (Long) -> Unit = { subprojectId ->
+        menuTargetId = subprojectId
+        showBlockMenu = true
+    }
 
     Box(
         modifier = modifier
@@ -199,6 +215,7 @@ fun WeekSchedulePage(
                                 rowHeight = rowHeight,
                                 dayColumnWidth = dayColumnWidth,
                                 totalHeight = totalHeight,
+                                onBlockClick = onBlockClick,
                             )
                         }
                     }
@@ -279,6 +296,41 @@ fun WeekSchedulePage(
                 )
             }
         }
+
+        // 已排期项目块的操作菜单（完成 / 放弃 / 回退）。
+        if (showBlockMenu) {
+            AlertDialog(
+                onDismissRequest = { showBlockMenu = false },
+                containerColor = MaterialTheme.colorScheme.surface,
+                tonalElevation = 0.dp,
+                title = { Text("操作") },
+                text = { Text("对这个子项目做什么？") },
+                confirmButton = {
+                    Row {
+                        TextButton(
+                            onClick = {
+                                onUnscheduleSubproject(menuTargetId)
+                                showBlockMenu = false
+                            },
+                            modifier = Modifier.testTag("UnscheduleSubprojectConfirm"),
+                        ) { Text("回退") }
+                        TextButton(
+                            onClick = {
+                                onCompleteSubproject(menuTargetId)
+                                showBlockMenu = false
+                            },
+                            modifier = Modifier.testTag("CompleteSubprojectConfirm"),
+                        ) { Text("完成") }
+                        TextButton(
+                            onClick = {
+                                onAbandonSubproject(menuTargetId)
+                                showBlockMenu = false
+                            },
+                        ) { Text("放弃") }
+                    }
+                },
+            )
+        }
     }
 }
 
@@ -290,6 +342,7 @@ private fun WeekDayGridColumn(
     rowHeight: androidx.compose.ui.unit.Dp,
     dayColumnWidth: androidx.compose.ui.unit.Dp,
     totalHeight: androidx.compose.ui.unit.Dp,
+    onBlockClick: (Long) -> Unit = {},
 ) {
     Box(
         modifier = Modifier
@@ -316,6 +369,7 @@ private fun WeekDayGridColumn(
                 dimmed = dimmed,
                 yPx = yPx,
                 hPx = hPx,
+                onClick = { onBlockClick(item.subprojectId) },
             )
         }
         }
@@ -329,6 +383,7 @@ private fun WeekScheduleBlock(
     dimmed: Boolean,
     yPx: Float,
     hPx: Float,
+    onClick: (() -> Unit)? = null,
 ) {
     val textColor = if (dimmed) {
         MaterialTheme.colorScheme.onSurfaceVariant
@@ -353,6 +408,7 @@ private fun WeekScheduleBlock(
             .height(hPx.dp)
             .fillMaxWidth()
             .padding(vertical = 1.dp, horizontal = 1.dp)
+            .then(if (onClick != null) Modifier.clickable { onClick() } else Modifier)
             .testTag("WeekItem-${item.id}")
             .semantics { this.dimmed = dimmed },
     ) {
@@ -365,13 +421,28 @@ private fun WeekScheduleBlock(
             tonalElevation = LocalZhixingElevation.current.low,
             shape = RoundedCornerShape(LocalZhixingRadii.current.sm),
         ) {
-            Column(modifier = Modifier.padding(2.dp)) {
+            Row(
+                modifier = Modifier.padding(2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                // 逾期项：弱化（灰）+ 灰色圆形图标，与"已终结"区分（后者无图标）。
+                if (item.isOverdue) {
+                    Icon(
+                        imageVector = Icons.Filled.Circle,
+                        contentDescription = "逾期",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(6.dp),
+                    )
+                    Spacer(modifier = Modifier.width(2.dp))
+                }
+                // 标题占满剩余空间（weight），时间段始终完整显示在右侧同行。
                 Text(
                     text = item.subprojectTitle,
                     style = MaterialTheme.typography.labelSmall,
                     color = textColor,
                     fontSize = 10.sp,
                     maxLines = 1,
+                    modifier = Modifier.weight(1f),
                 )
                 Text(
                     text = formatTimeRange(item.startTime, item.endTime),
@@ -383,19 +454,6 @@ private fun WeekScheduleBlock(
             }
         }
     }
-}
-
-private fun formatHourMinute(minutes: Int): String {
-    val h = minutes / 60
-    val m = minutes % 60
-    return "%02d:%02d".format(h, m)
-}
-
-/**
- * 将起止分钟数格式化为 "HH:MM - HH:MM" 时间段，与日视图一致。
- */
-private fun formatTimeRange(startMinutes: Int, endMinutes: Int): String {
-    return "${formatHourMinute(startMinutes)} - ${formatHourMinute(endMinutes)}"
 }
 
 /**

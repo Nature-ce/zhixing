@@ -12,8 +12,6 @@ import androidx.compose.material3.DatePicker
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TimePicker
@@ -21,7 +19,6 @@ import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -33,13 +30,16 @@ import androidx.compose.ui.unit.dp
 /**
  * 排期日期 + 时间选择对话框。
  *
- * 顶部选日期（点击行弹出 DatePickerDialog），下方选开始 / 结束时间。
+ * 顶部选日期（点击行弹出 DatePickerDialog），下方仅选**开始时间**；
+ * 结束时间由「开始 + 建议时长 ([suggestedDurationMinutes])」自动计算并回显，
+ * 用户无需手动输入结束时间。
  * 校验：
- *   - 结束必须晚于开始（[isValidSchedule]）
+ *   - 结束必须晚于开始（[isValidSchedule]；建议时长 > 0 时恒成立）
  *   - 所选日期不能早于 today（[isValidScheduleDate]），
  *     否则禁用确认按钮并显示"不能排到过去"提示。
  *
- * 回调返回 (date, startTime, endTime)，date 为 "yyyy-MM-dd"。
+ * 回调返回 (date, startTime, endTime)，date 为 "yyyy-MM-dd"，
+ * 其中 endTime = startTime + suggestedDurationMinutes。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -48,18 +48,17 @@ fun ScheduleDateTimePickerDialog(
     onDismiss: () -> Unit,
     initialDate: String,
     today: String,
+    suggestedDurationMinutes: Int = 60,
 ) {
     // 当前选中的日期（字符串），点击行后弹出日历对话框修改它
     var selectedDate by remember { mutableStateOf(initialDate) }
     var showDateDialog by remember { mutableStateOf(false) }
     val dateValid = isValidScheduleDate(selectedDate, today)
 
-    var selectedTab by remember { mutableIntStateOf(0) }
     val startState = rememberTimePickerState(initialHour = 9, initialMinute = 0, is24Hour = true)
-    val endState = rememberTimePickerState(initialHour = 10, initialMinute = 0, is24Hour = true)
 
     val startMinute = startState.hour * 60 + startState.minute
-    val endMinute = endState.hour * 60 + endState.minute
+    val endMinute = startMinute + suggestedDurationMinutes
     val timeValid = isValidSchedule(startMinute, endMinute)
 
     if (showDateDialog) {
@@ -115,29 +114,26 @@ fun ScheduleDateTimePickerDialog(
                         modifier = Modifier.testTag("ScheduleDateError"),
                     )
                 }
-                TabRow(selectedTabIndex = selectedTab) {
-                    Tab(
-                        selected = selectedTab == 0,
-                        onClick = { selectedTab = 0 },
-                        text = { Text("开始") },
-                        modifier = Modifier.testTag("StartTab"),
+                TimePicker(
+                    state = startState,
+                    modifier = Modifier.fillMaxWidth().testTag("StartTimePicker"),
+                )
+                // 结束时间 = 开始 + 建议时长，自动回显，无需手动输入。
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "结束",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    Tab(
-                        selected = selectedTab == 1,
-                        onClick = { selectedTab = 1 },
-                        text = { Text("结束") },
-                        modifier = Modifier.testTag("EndTab"),
-                    )
-                }
-                if (selectedTab == 0) {
-                    TimePicker(
-                        state = startState,
-                        modifier = Modifier.fillMaxWidth().testTag("StartTimePicker"),
-                    )
-                } else {
-                    TimePicker(
-                        state = endState,
-                        modifier = Modifier.fillMaxWidth().testTag("EndTimePicker"),
+                    Text(
+                        text = formatMinutes(endMinute),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.padding(start = 4.dp).testTag("ScheduleEndTimePreview"),
                     )
                 }
             }
@@ -176,6 +172,7 @@ fun ScheduleTimePickerDialog(
         onDismiss = onDismiss,
         initialDate = "2026-01-01",
         today = "2026-01-01",
+        suggestedDurationMinutes = 60,
     )
 }
 

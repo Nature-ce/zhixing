@@ -155,6 +155,74 @@ class DayScheduleViewModelScheduleTest {
     }
 
     @Test
+    fun unschedule_subproject_reverts_status_and_clears_schedule() {
+        // 端到端：排期后子项目出现在日程视图 → 回退 → 状态变回 backlog + 排期记录删除 + 重入 backlog。
+        runBlocking {
+            val taskId = taskDao.insertTask(TaskEntity(title = "读书笔记", createdAt = 1_000L))
+            val sub = subprojectDao.insertSubproject(
+                SubprojectEntity(taskId = taskId, title = "选书目", status = "backlog", createdAt = 2_000L)
+            )
+
+            val vm = DayScheduleViewModel(
+                date = "2026-07-09",
+                taskDao = taskDao,
+                scheduleDao = scheduleDao,
+                subprojectDao = subprojectDao,
+                currentTimeProvider = { 0 },
+            )
+
+            // 排期，等待状态稳定为"已排期"。
+            assertThat(vm.scheduleSubproject(sub, "2026-07-09", 540, 600)).isEqualTo(true)
+            runBlocking {
+                vm.scheduleItems.first { items ->
+                    items.any { it.subprojectId == sub && it.subprojectStatus == "已排期" }
+                }
+            }
+            assertThat(scheduleDao.getScheduleItemsByDate("2026-07-09").first()).hasSize(1)
+
+            // 回退 → 返回 true
+            val result = vm.unscheduleSubproject(sub)
+            assertThat(result).isEqualTo(true)
+
+            // 子项目状态变回 backlog
+            val updated = subprojectDao.getAllSubprojects().first().first { it.id == sub }
+            assertThat(updated.status).isEqualTo("backlog")
+            // 排期记录删除
+            assertThat(scheduleDao.getScheduleItemsByDate("2026-07-09").first()).isEmpty()
+            // 重入 backlog
+            runBlocking {
+                vm.backlogItems.first { items -> items.any { it.id == sub } }
+            }
+            assertThat(vm.backlogItems.value.map { it.id }).contains(sub)
+        }
+    }
+
+    @Test
+    fun unschedule_rejects_when_not_scheduled() {
+        // 未排期的子项目（backlog / 已完成 / 已放弃）不允许回退，返回 false 且数据不变。
+        runBlocking {
+            val taskId = taskDao.insertTask(TaskEntity(title = "读书笔记", createdAt = 1_000L))
+            val sub = subprojectDao.insertSubproject(
+                SubprojectEntity(taskId = taskId, title = "选书目", status = "backlog", createdAt = 2_000L)
+            )
+
+            val vm = DayScheduleViewModel(
+                date = "2026-07-09",
+                taskDao = taskDao,
+                scheduleDao = scheduleDao,
+                subprojectDao = subprojectDao,
+                currentTimeProvider = { 0 },
+            )
+
+            val result = vm.unscheduleSubproject(sub)
+
+            assertThat(result).isEqualTo(false)
+            val updated = subprojectDao.getAllSubprojects().first().first { it.id == sub }
+            assertThat(updated.status).isEqualTo("backlog")
+        }
+    }
+
+    @Test
     fun abandon_subproject_updates_schedule_items_status_to_abandoned() {
         // 端到端：排期后子项目出现在日程视图（已排期）→ 放弃 → 日程视图里状态应变为"已放弃"（卡片随即弱化）。
         runBlocking {

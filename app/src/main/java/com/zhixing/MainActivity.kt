@@ -191,6 +191,15 @@ private fun ScheduleTab(
                         weekVm.scheduleSubproject(subprojectId, date, startTime, endTime)
                     }
                 },
+                onCompleteSubproject = { subprojectId ->
+                    scope.launch { weekVm.completeSubproject(subprojectId) }
+                },
+                onAbandonSubproject = { subprojectId ->
+                    scope.launch { weekVm.abandonSubproject(subprojectId) }
+                },
+                onUnscheduleSubproject = { subprojectId ->
+                    scope.launch { weekVm.unscheduleSubproject(subprojectId) }
+                },
                 collapsed = collapsedBacklog,
                 onCollapsedChange = onCollapsedBacklogChange,
                 modifier = Modifier.weight(1f),
@@ -220,6 +229,9 @@ private fun ScheduleTab(
                 },
                 onAbandonSubproject = { subprojectId ->
                     scope.launch { vm.abandonSubproject(subprojectId) }
+                },
+                onUnscheduleSubproject = { subprojectId ->
+                    scope.launch { vm.unscheduleSubproject(subprojectId) }
                 },
                 collapsed = collapsedBacklog,
                 onCollapsedChange = onCollapsedBacklogChange,

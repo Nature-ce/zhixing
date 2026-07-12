@@ -44,7 +44,7 @@ class ScheduleScrollTest {
         // 执行滚动 → 项目进入视口
         composeRule.onNodeWithTag("ScheduleBlock-1").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("晚自习", useUnmergedTree = true).assertIsDisplayed()
-        composeRule.onNodeWithText("21:00 - 22:00").assertIsDisplayed()
+        composeRule.onNodeWithText("21:00-22:00").assertIsDisplayed()
     }
 
     @Test
@@ -64,7 +64,7 @@ class ScheduleScrollTest {
         }
 
         composeRule.onNodeWithTag("ScheduleBlock-1").assertIsDisplayed()
-        composeRule.onNodeWithText("10:00 - 11:00").assertIsDisplayed()
+        composeRule.onNodeWithText("10:00-11:00").assertIsDisplayed()
     }
 
     @Test

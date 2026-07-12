@@ -132,6 +132,28 @@ class DayScheduleViewModel(
     }
 
     /**
+     * 回退已排期的子项目到 backlog（日程视图点击项目块「回退」触发）。
+     *
+     * 仅当子项目当前为"已排期"才允许：删除该子项目的排期记录 + 状态改回 backlog。
+     * 其他状态（backlog / 已完成 / 已放弃）拒绝，返回 false。
+     *
+     * @return 是否成功回退
+     */
+    suspend fun unscheduleSubproject(subprojectId: Long): Boolean {
+        val current = subprojectDao.getAllSubprojects().first().firstOrNull { it.id == subprojectId }
+            ?: return false
+        // 校验流转合法性：只有"已排期"才可回退到 backlog，非法则抛异常由下方 catch 转为 false。
+        val newStatus = try {
+            SubprojectState.transition(current.status, "backlog")
+        } catch (e: IllegalArgumentException) {
+            return false
+        }
+        scheduleDao.clearScheduleForSubproject(subprojectId)
+        subprojectDao.updateSubprojectStatus(subprojectId, newStatus)
+        return true
+    }
+
+    /**
      * 标记子项目"已放弃"（日程视图点击项目块触发）。
      *
      * 先验证流转合法性（已是"已放弃"则拒绝，返回 false），

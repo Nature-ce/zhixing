@@ -1,9 +1,9 @@
 package com.zhixing.ui
 
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -71,6 +71,7 @@ class ScheduleDateTimePickerTest {
                 ScheduleDateTimePickerDialog(
                     initialDate = "2026-07-09",
                     today = "2026-07-08",
+                    suggestedDurationMinutes = 60,
                     onConfirm = { date, start, end -> captured = Triple(date, start, end) },
                     onDismiss = {},
                 )
@@ -82,5 +83,26 @@ class ScheduleDateTimePickerTest {
 
         composeRule.waitUntil(timeoutMillis = 5_000) { captured != null }
         assertThat(captured).isEqualTo(Triple("2026-07-09", 540, 600))
+    }
+
+    @Test
+    fun end_time_preview_reflects_start_plus_suggested_duration() {
+        // 结束时间 = 开始时间 + 建议时长，并作为预览回显，用户无需手动输入结束时间。
+        composeRule.setContent {
+            ZhixingTheme {
+                ScheduleDateTimePickerDialog(
+                    initialDate = "2026-07-09",
+                    today = "2026-07-08",
+                    suggestedDurationMinutes = 60,
+                    onConfirm = { _, _, _ -> },
+                    onDismiss = {},
+                )
+            }
+        }
+
+        // 结束时间预览 = 开始 09:00 + 建议 60min = 10:00，回显给用户确认
+        composeRule.onNodeWithTag("ScheduleEndTimePreview").assertTextEquals("10:00")
+        // 确认按钮 enabled（结束晚于开始，恒成立）
+        composeRule.onNodeWithTag("ConfirmScheduleTime").assertIsEnabled()
     }
 }
