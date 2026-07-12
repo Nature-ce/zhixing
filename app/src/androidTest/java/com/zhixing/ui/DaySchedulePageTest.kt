@@ -355,11 +355,11 @@ class DaySchedulePageTest {
     }
 
     @Test
-    fun abandoned_schedule_block_shows_dimmed() {
-        // "已放弃"的子项目卡片同样应做弱化（变灰）显示。
+    fun completed_schedule_block_shows_check_icon() {
+        // "已完成"的子项目卡片除弱化显示外，还应挂绿色钩（Icons.Filled.Check）一眼标识终态。
         val items = listOf(
             ScheduleItem(id = 10, subprojectTitle = "选书目", startTime = 600, endTime = 660,
-                subprojectStatus = "已放弃", subprojectId = 1),
+                subprojectStatus = "已完成", subprojectId = 1),
         )
 
         composeRule.setContent {
@@ -371,8 +371,7 @@ class DaySchedulePageTest {
             }
         }
 
-        composeRule.onNodeWithTag("ScheduleBlock-10")
-            .assert(SemanticsMatcher.expectValue(ScheduleBlockDimmedKey, true))
+        composeRule.onNodeWithContentDescription("已完成").assertIsDisplayed()
     }
 
     @Test
@@ -397,8 +396,8 @@ class DaySchedulePageTest {
     }
 
     @Test
-    fun click_abandon_then_block_shows_dimmed() {
-        // 完整的响应式流程：初始"已排期"（不弱化）→ 点击放弃 → 状态变为"已放弃" → 卡片立即弱化（变灰）。
+    fun click_schedule_block_then_abandon_removes_it() {
+        // 完整流程：初始"已排期"（渲染块）→ 点击放弃 → 块直接消失（放弃 = 删除，不显示弱化占位块）。
         val items = mutableStateOf(listOf(
             ScheduleItem(id = 10, subprojectTitle = "选书目", startTime = 600, endTime = 660,
                 subprojectStatus = "已排期", subprojectId = 1),
@@ -410,29 +409,25 @@ class DaySchedulePageTest {
                     date = "2026-07-08",
                     scheduleItems = items.value,
                     onAbandonSubproject = { id ->
-                        items.value = items.value.map {
-                            if (it.subprojectId == id) it.copy(subprojectStatus = "已放弃") else it
-                        }
+                        // 放弃 = 彻底删除：把该子项目从列表里移除（模拟 VM 删子项目 + 清排期 → 块消失）。
+                        items.value = items.value.filterNot { it.subprojectId == id }
                     },
                 )
             }
         }
 
-        // 初始：进行中，不弱化
-        composeRule.onNodeWithTag("ScheduleBlock-10")
-            .assert(SemanticsMatcher.expectValue(ScheduleBlockDimmedKey, false))
+        // 初始：块存在
+        composeRule.onNodeWithTag("ScheduleBlock-10").assertExists()
 
         // 点击排期块 → 弹出操作菜单 → 点击"放弃"
         composeRule.onNodeWithTag("ScheduleBlock-10").performClick()
         composeRule.onNodeWithText("放弃").performClick()
 
-        // 放弃后：状态变为"已放弃"，卡片应立即弱化
+        // 放弃后：块直接消失
         composeRule.waitUntil(timeoutMillis = 5_000) {
-            composeRule.onNodeWithTag("ScheduleBlock-10")
-                .fetchSemanticsNode().config.getOrNull(ScheduleBlockDimmedKey) == true
+            composeRule.onAllNodesWithTag("ScheduleBlock-10").fetchSemanticsNodes().isEmpty()
         }
-        composeRule.onNodeWithTag("ScheduleBlock-10")
-            .assert(SemanticsMatcher.expectValue(ScheduleBlockDimmedKey, true))
+        composeRule.onNodeWithTag("ScheduleBlock-10").assertDoesNotExist()
     }
 
     @Test

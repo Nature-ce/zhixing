@@ -35,8 +35,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.ArrowDropDown
-import androidx.compose.material.icons.filled.Circle
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -139,6 +140,11 @@ fun WeekSchedulePage(
         showBlockMenu = true
     }
 
+    // backlog 子项目的排期菜单（仅「排期」；完成/放弃已在日程块菜单，不重复）。
+    var showBacklogMenu by remember { mutableStateOf(false) }
+    var backlogMenuTargetId by remember { mutableStateOf(0L) }
+    var showBacklogScheduleDialog by remember { mutableStateOf(false) }
+
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -228,7 +234,10 @@ fun WeekSchedulePage(
                   BacklogPillSection(
                     backlogItems = backlogItems,
                     dragState = dragState,
-                    onPillClick = { /* 周视图暂不开放点击排期菜单，保留扩展点 */ },
+                    onPillClick = { id ->
+                        backlogMenuTargetId = id
+                        showBacklogMenu = true
+                    },
                     onPillPositioned = { id, top, left ->
                         backlogTops[id] = top
                         backlogLefts[id] = left
@@ -331,6 +340,42 @@ fun WeekSchedulePage(
                 },
             )
         }
+
+        // backlog 子项目的操作菜单：仅「排期」。
+        // 完成/放弃在日程块菜单中已有（排期后的子项目进入格栅成为排期块），故不重复。
+        if (showBacklogMenu) {
+            AlertDialog(
+                onDismissRequest = { showBacklogMenu = false },
+                containerColor = MaterialTheme.colorScheme.surface,
+                tonalElevation = 0.dp,
+                title = { Text("操作") },
+                text = { Text("对这个子项目做什么？") },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            showBacklogMenu = false
+                            showBacklogScheduleDialog = true
+                        },
+                        modifier = Modifier.testTag("BacklogScheduleConfirm"),
+                    ) { Text("排期") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showBacklogMenu = false }) { Text("取消") }
+                },
+            )
+        }
+
+        if (showBacklogScheduleDialog) {
+            ScheduleDateTimePickerDialog(
+                initialDate = weekDates.first(),
+                today = weekDates.first(),
+                onConfirm = { selectedDate, start, end ->
+                    onScheduleSubproject(backlogMenuTargetId, selectedDate, start, end)
+                    showBacklogScheduleDialog = false
+                },
+                onDismiss = { showBacklogScheduleDialog = false },
+            )
+        }
     }
 }
 
@@ -425,13 +470,21 @@ private fun WeekScheduleBlock(
                 modifier = Modifier.padding(2.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                // 逾期项：弱化（灰）+ 灰色圆形图标，与"已终结"区分（后者无图标）。
-                if (item.isOverdue) {
+                // 状态图标：已完成（绿钩）优先于逾期（灰闹钟）。放弃的块已被删除，不会进入此函数。
+                // 尺寸 12dp，适配周视图更密的行高；与"已终结"纯弱化（无图标）区分。
+                val weekIcon = when {
+                    item.subprojectStatus == "已完成" ->
+                        Triple(Icons.Filled.Check, LocalZhixingStatus.current.doneFg, "已完成")
+                    item.isOverdue ->
+                        Triple(Icons.Filled.Alarm, MaterialTheme.colorScheme.onSurfaceVariant, "逾期")
+                    else -> null
+                }
+                if (weekIcon != null) {
                     Icon(
-                        imageVector = Icons.Filled.Circle,
-                        contentDescription = "逾期",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(6.dp),
+                        imageVector = weekIcon.first,
+                        contentDescription = weekIcon.third,
+                        tint = weekIcon.second,
+                        modifier = Modifier.size(12.dp),
                     )
                     Spacer(modifier = Modifier.width(2.dp))
                 }

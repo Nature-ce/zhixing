@@ -154,29 +154,15 @@ class DayScheduleViewModel(
     }
 
     /**
-     * 标记子项目"已放弃"（日程视图点击项目块触发）。
+     * 放弃子项目 = 彻底删除：清排期记录 + 删子项目行，日程块直接消失，不写 backlog。
      *
-     * 先验证流转合法性（已是"已放弃"则拒绝，返回 false），
-     * 再写子项目状态 + 完成时间戳；
-     * 若该任务的所有子项目都进入终态，任务自动变"已完成"。
+     * @return 子项目存在且已删除返回 true；不存在返回 false
      */
     suspend fun abandonSubproject(subprojectId: Long): Boolean {
-        val all = subprojectDao.getAllSubprojects().first()
-        val current = all.first { it.id == subprojectId }
-        val newStatus = try {
-            SubprojectState.transition(current.status, "已放弃")
-        } catch (e: IllegalArgumentException) {
-            return false
-        }
-        val completedAt = System.currentTimeMillis()
-        subprojectDao.updateSubprojectStatusAndCompletedAt(subprojectId, newStatus, completedAt)
-        // 任务自动完成：所有子项目终态 → 任务变"已完成"（仅在任务本身还不是终态时回写）
-        val taskId = current.taskId
-        val task = taskDao.getTaskById(taskId) ?: return true
-        val after = all.map { if (it.id == subprojectId) it.copy(status = newStatus) else it }
-        if (task.status !in TERMINAL && TaskStatus.resolve(after.map { it.status }) == "已完成") {
-            taskDao.updateTaskStatus(taskId, "已完成")
-        }
+        val current = subprojectDao.getAllSubprojects().first().firstOrNull { it.id == subprojectId }
+            ?: return false
+        scheduleDao.clearScheduleForSubproject(subprojectId)
+        subprojectDao.deleteSubprojectById(subprojectId)
         return true
     }
 

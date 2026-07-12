@@ -107,7 +107,37 @@ class DayScheduleViewModelScheduleTest {
     }
 
     @Test
-    fun abandon_subproject_changes_status_to_abandoned() {
+    fun abandon_subproject_deletes_subproject_and_clears_schedule() {
+        // 放弃 = 彻底删除：子项目行消失 + 排期记录清空，日程块直接消失，不写 backlog。
+        runBlocking {
+            val taskId = taskDao.insertTask(TaskEntity(title = "读书笔记", createdAt = 1_000L))
+            val sub = subprojectDao.insertSubproject(
+                SubprojectEntity(taskId = taskId, title = "选书目", status = "已排期", createdAt = 2_000L)
+            )
+            // 先排期，写入一条 schedule_items 行。
+            scheduleDao.insertScheduleItem(com.zhixing.data.entity.ScheduleEntity(subprojectId = sub, date = "2026-07-09", startTime = 540, endTime = 600, createdAt = 4_000L))
+
+            val vm = DayScheduleViewModel(
+                date = "2026-07-09",
+                taskDao = taskDao,
+                scheduleDao = scheduleDao,
+                subprojectDao = subprojectDao,
+                currentTimeProvider = { 0 },
+            )
+
+            val result = vm.abandonSubproject(sub)
+
+            assertThat(result).isEqualTo(true)
+            // 子项目行被删除
+            assertThat(subprojectDao.getAllSubprojects().first()).noneMatch { it.id == sub }
+            // 排期记录被清空
+            assertThat(scheduleDao.getScheduleItemsByDate("2026-07-09").first()).isEmpty()
+        }
+    }
+
+    @Test
+    fun abandon_returns_false_when_subproject_missing() {
+        // 子项目不存在（已删除或从未存在）→ 放弃返回 false。
         runBlocking {
             val taskId = taskDao.insertTask(TaskEntity(title = "读书笔记", createdAt = 1_000L))
             val sub = subprojectDao.insertSubproject(
@@ -122,35 +152,10 @@ class DayScheduleViewModelScheduleTest {
                 currentTimeProvider = { 0 },
             )
 
-            val result = vm.abandonSubproject(sub)
-
-            assertThat(result).isEqualTo(true)
-            val updated = subprojectDao.getAllSubprojects().first().first { it.id == sub }
-            assertThat(updated.status).isEqualTo("已放弃")
-        }
-    }
-
-    @Test
-    fun abandon_rejects_when_already_abandoned() {
-        runBlocking {
-            val taskId = taskDao.insertTask(TaskEntity(title = "读书笔记", createdAt = 1_000L))
-            val sub = subprojectDao.insertSubproject(
-                SubprojectEntity(taskId = taskId, title = "选书目", status = "已放弃", createdAt = 2_000L)
-            )
-
-            val vm = DayScheduleViewModel(
-                date = "2026-07-09",
-                taskDao = taskDao,
-                scheduleDao = scheduleDao,
-                subprojectDao = subprojectDao,
-                currentTimeProvider = { 0 },
-            )
-
-            val result = vm.abandonSubproject(sub)
-
-            assertThat(result).isEqualTo(false)
-            val updated = subprojectDao.getAllSubprojects().first().first { it.id == sub }
-            assertThat(updated.status).isEqualTo("已放弃")
+            // 第一次放弃 → 删除成功
+            assertThat(vm.abandonSubproject(sub)).isEqualTo(true)
+            // 第二次放弃 → 已不存在，返回 false
+            assertThat(vm.abandonSubproject(sub)).isEqualTo(false)
         }
     }
 
@@ -223,8 +228,8 @@ class DayScheduleViewModelScheduleTest {
     }
 
     @Test
-    fun abandon_subproject_updates_schedule_items_status_to_abandoned() {
-        // 端到端：排期后子项目出现在日程视图（已排期）→ 放弃 → 日程视图里状态应变为"已放弃"（卡片随即弱化）。
+    fun abandon_subproject_removes_item_from_schedule_view() {
+        // 端到端：排期后子项目出现在日程视图（已排期）→ 放弃 → 日程视图里该块直接消失（不显示"已放弃"占位块）。
         runBlocking {
             val taskId = taskDao.insertTask(TaskEntity(title = "读书笔记", createdAt = 1_000L))
             val sub = subprojectDao.insertSubproject(
@@ -252,16 +257,17 @@ class DayScheduleViewModelScheduleTest {
             val before = vm.scheduleItems.value.first { it.subprojectId == sub }
             assertThat(before.subprojectStatus).isEqualTo("已排期")
 
-            // 放弃 → 日程视图状态应变更为"已放弃"
+            // 放弃 → 日程视图里该块直接消失（删除子项目 + 清排期记录）
             val result = vm.abandonSubproject(sub)
             assertThat(result).isEqualTo(true)
             runBlocking {
                 vm.scheduleItems.first { items ->
-                    items.any { it.subprojectId == sub && it.subprojectStatus == "已放弃" }
+                    items.none { it.subprojectId == sub }
                 }
             }
-            val after = vm.scheduleItems.value.first { it.subprojectId == sub }
-            assertThat(after.subprojectStatus).isEqualTo("已放弃")
+            assertThat(vm.scheduleItems.value).noneMatch { it.subprojectId == sub }
+            // 子项目行也不存在
+            assertThat(subprojectDao.getAllSubprojects().first()).noneMatch { it.id == sub }
         }
     }
 

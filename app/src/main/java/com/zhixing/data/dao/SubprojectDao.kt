@@ -28,4 +28,7 @@ interface SubprojectDao {
 
     @Query("DELETE FROM subprojects WHERE taskId = :taskId")
     suspend fun deleteSubprojectsByTaskId(taskId: Long)
+
+    @Query("DELETE FROM subprojects WHERE id = :id")
+    suspend fun deleteSubprojectById(id: Long)
 }

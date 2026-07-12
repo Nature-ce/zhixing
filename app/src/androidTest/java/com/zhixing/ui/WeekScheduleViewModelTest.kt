@@ -91,12 +91,15 @@ class WeekScheduleViewModelTest {
     }
 
     @Test
-    fun abandon_subproject_changes_status_to_abandoned() {
+    fun abandon_subproject_deletes_subproject_and_clears_schedule() {
+        // 放弃 = 彻底删除：子项目行消失 + 排期记录清空，日程块直接消失，不写 backlog。
         runBlocking {
             val taskId = taskDao.insertTask(TaskEntity(title = "读书笔记", createdAt = 1_000L))
             val sub = subprojectDao.insertSubproject(
                 SubprojectEntity(taskId = taskId, title = "选书目", status = "已排期", createdAt = 2_000L)
             )
+            // 先排期，写入一条 schedule_items 行。
+            scheduleDao.insertScheduleItem(com.zhixing.data.entity.ScheduleEntity(subprojectId = sub, date = "2026-07-08", startTime = 540, endTime = 600, createdAt = 4_000L))
 
             val vm = WeekScheduleViewModel(
                 weekDates = listOf("2026-07-06", "2026-07-07", "2026-07-08", "2026-07-09", "2026-07-10", "2026-07-11", "2026-07-12"),
@@ -108,8 +111,10 @@ class WeekScheduleViewModelTest {
             val result = vm.abandonSubproject(sub)
 
             assertThat(result).isEqualTo(true)
-            val updated = subprojectDao.getAllSubprojects().first().first { it.id == sub }
-            assertThat(updated.status).isEqualTo("已放弃")
+            // 子项目行被删除
+            assertThat(subprojectDao.getAllSubprojects().first()).noneMatch { it.id == sub }
+            // 排期记录被清空
+            assertThat(scheduleDao.getScheduleItemsByDate("2026-07-08").first()).isEmpty()
         }
     }
 

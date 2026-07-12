@@ -33,8 +33,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.ArrowDropDown
-import androidx.compose.material.icons.filled.Circle
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -436,13 +437,21 @@ private fun ScheduleBlock(
                 modifier = Modifier.padding(LocalZhixingSpacing.current.xs),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                // 逾期项：弱化（灰）+ 灰色圆形图标，与"已终结"区分（后者无图标）。
-                if (item.isOverdue) {
+                // 状态图标：已完成（绿钩）优先于逾期（灰闹钟）。放弃的块已被删除，不会进入此函数。
+                // 尺寸 16dp，语义一眼可辨；与"已终结"纯弱化（无图标）区分。
+                val dayIcon = when {
+                    item.subprojectStatus == "已完成" ->
+                        Triple(Icons.Filled.Check, LocalZhixingStatus.current.doneFg, "已完成")
+                    item.isOverdue ->
+                        Triple(Icons.Filled.Alarm, MaterialTheme.colorScheme.onSurfaceVariant, "逾期")
+                    else -> null
+                }
+                if (dayIcon != null) {
                     Icon(
-                        imageVector = Icons.Filled.Circle,
-                        contentDescription = "逾期",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(8.dp),
+                        imageVector = dayIcon.first,
+                        contentDescription = dayIcon.third,
+                        tint = dayIcon.second,
+                        modifier = Modifier.size(16.dp),
                     )
                     Spacer(modifier = Modifier.width(2.dp))
                 }

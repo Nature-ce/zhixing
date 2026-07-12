@@ -5,6 +5,7 @@ import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -243,4 +244,48 @@ class WeekScheduleTimeGridTest {
         composeRule.onNodeWithTag("WeekDay-2026-07-06").assertExists()
         composeRule.onNodeWithTag("WeekDay-2026-07-08").assertExists()
     }
+
+    @Test
+    fun click_week_backlog_item_then_schedule_invokes_onScheduleSubproject() {
+        // 周视图完整排期流程：点 backlog 药丸 → 菜单「排期」→ 排期对话框确认 → onScheduleSubproject 被调用。
+        // onScheduleSubproject 周视图签名为 (subprojectId, date, startTime, endTime)。
+        val backlog = listOf(BacklogItem(id = 2, title = "划重点", estimatedDuration = 60))
+
+        var scheduledArgs: Quadruple<Long, String, Int, Int>? = null
+
+        composeRule.setContent {
+            ZhixingTheme {
+                WeekSchedulePage(
+                    weekDates = weekDates,
+                    itemsByDate = emptyMap(),
+                    backlogItems = backlog,
+                    onScheduleSubproject = { id, date, start, end ->
+                        scheduledArgs = Quadruple(id, date, start, end)
+                    },
+                )
+            }
+        }
+
+        // 展开 backlog 面板后，点击 backlog 药丸 → 弹出操作菜单
+        composeRule.onNodeWithTag("BacklogItem-2").performClick()
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodesWithTag("BacklogScheduleConfirm").fetchSemanticsNodes().isNotEmpty()
+        }
+        // 点「排期」→ 排期日期时间选择对话框
+        composeRule.onNodeWithTag("BacklogScheduleConfirm").performClick()
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodesWithTag("ConfirmScheduleTime").fetchSemanticsNodes().isNotEmpty()
+        }
+        // 直接确认（默认日期/时间段合法）
+        composeRule.onNodeWithTag("ConfirmScheduleTime").performClick()
+
+        composeRule.waitUntil(timeoutMillis = 5_000) { scheduledArgs != null }
+        assertThat(scheduledArgs?.first).isEqualTo(2L)
+        // 默认排期日期应在本周范围内
+        assertThat(scheduledArgs?.second).isIn(weekDates)
+        assertThat(scheduledArgs?.third).isEqualTo(540)   // 09:00
+        assertThat(scheduledArgs?.fourth).isEqualTo(600)   // 10:00 (09:00 + 60min)
+    }
 }
+
+private data class Quadruple<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)

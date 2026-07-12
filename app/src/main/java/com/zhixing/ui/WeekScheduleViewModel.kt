@@ -10,12 +10,17 @@ import com.zhixing.data.dao.ScheduleDao
 import com.zhixing.data.dao.SubprojectDao
 import com.zhixing.data.dao.TaskDao
 import com.zhixing.data.entity.ScheduleEntity
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Date
+import java.util.Locale
 
 /**
  * 周视图 ViewModel。
@@ -28,6 +33,8 @@ class WeekScheduleViewModel(
     private val scheduleDao: ScheduleDao,
     private val subprojectDao: SubprojectDao,
     private val taskDao: TaskDao,
+    private val currentTimeProvider: () -> Int = { currentMinutesOfDay() },
+    private val todayProvider: () -> String = { today() },
 ) : ViewModel() {
 
     private val _itemsByDate = MutableStateFlow<Map<String, List<ScheduleItem>>>(emptyMap())
@@ -37,17 +44,33 @@ class WeekScheduleViewModel(
     private val _backlogItems = MutableStateFlow<List<BacklogItem>>(emptyList())
     val backlogItems: StateFlow<List<BacklogItem>> = _backlogItems.asStateFlow()
 
+    // 当日当前分钟数，每 60 秒刷新一次供逾期判定使用，让逾期状态随时间推进自动更新。
+    private val _currentMinutes = MutableStateFlow(currentTimeProvider())
+
     init {
         if (weekDates.isNotEmpty()) {
             val startDate = weekDates.first()
             val endDate = weekDates.last()
+            // 定时刷新"当日分钟数"，让逾期状态随时间推进自动更新。
+            viewModelScope.launch {
+                while (true) {
+                    _currentMinutes.value = currentTimeProvider()
+                    delay(60_000L)
+                }
+            }
             viewModelScope.launch {
                 combine(
                     scheduleDao.getScheduleItemsBetween(startDate, endDate),
                     subprojectDao.getAllSubprojects(),
                     taskDao.getAllTasks(),
-                ) { scheduleItems, subprojects, tasks ->
-                    val assembled = ScheduleListComposer.assemble(scheduleItems, subprojects)
+                    _currentMinutes,
+                ) { scheduleItems, subprojects, tasks, currentTime ->
+                    val assembled = ScheduleListComposer.assemble(
+                        scheduleItems = scheduleItems,
+                        subprojects = subprojects,
+                        currentTime = currentTime,
+                        today = todayProvider(),
+                    )
                     // 仅保留本周范围内的排期，按日期分组
                     val grouped = assembled
                         .filter { it.date in weekDates }
@@ -121,19 +144,15 @@ class WeekScheduleViewModel(
     }
 
     /**
-     * 标记子项目"已放弃"。先验证流转合法性，再写状态 + 完成时间戳；
-     * 若该任务的所有子项目都进入终态，任务自动变"已完成"。
+     * 放弃子项目 = 彻底删除：清排期记录 + 删子项目行，日程块直接消失，不写 backlog。
+     *
+     * @return 子项目存在且已删除返回 true；不存在返回 false
      */
     suspend fun abandonSubproject(subprojectId: Long): Boolean {
-        val all = subprojectDao.getAllSubprojects().first()
-        val current = all.firstOrNull { it.id == subprojectId } ?: return false
-        val newStatus = try {
-            SubprojectState.transition(current.status, "已放弃")
-        } catch (e: IllegalArgumentException) {
-            return false
-        }
-        subprojectDao.updateSubprojectStatusAndCompletedAt(subprojectId, newStatus, System.currentTimeMillis())
-        maybeAutoCompleteTask(current.taskId, all, subprojectId, newStatus)
+        val current = subprojectDao.getAllSubprojects().first().firstOrNull { it.id == subprojectId }
+            ?: return false
+        scheduleDao.clearScheduleForSubproject(subprojectId)
+        subprojectDao.deleteSubprojectById(subprojectId)
         return true
     }
 
@@ -170,10 +189,21 @@ class WeekScheduleViewModelFactory(
     private val scheduleDao: ScheduleDao,
     private val subprojectDao: SubprojectDao,
     private val taskDao: TaskDao,
+    private val currentTimeProvider: () -> Int = { currentMinutesOfDay() },
+    private val todayProvider: () -> String = { today() },
 ) : ViewModelProvider.Factory {
 
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
-        return WeekScheduleViewModel(weekDates, scheduleDao, subprojectDao, taskDao) as T
+        return WeekScheduleViewModel(weekDates, scheduleDao, subprojectDao, taskDao, currentTimeProvider, todayProvider) as T
     }
+}
+
+private fun currentMinutesOfDay(): Int {
+    val now = Calendar.getInstance()
+    return now.get(Calendar.HOUR_OF_DAY) * 60 + now.get(Calendar.MINUTE)
+}
+
+private fun today(): String {
+    return SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
 }
