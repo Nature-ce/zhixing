@@ -7,8 +7,11 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -26,8 +29,10 @@ import com.zhixing.ui.theme.LocalZhixingSpacing
 /**
  * 任务详情内容区。
  *
- * 任务标题（含描述）+ 子项目列表。子项目操作（排期/完成/放弃）已移至日程栏，
- * 任务栏只负责展示，故子项目行当前为纯展示；点击事件留作扩展口。
+ * 任务标题（含描述）+ AI 拆解入口 + 子项目列表。
+ * 拆解按钮与标题同行——标题占左、按钮靠右，"拆解该任务"动作紧邻任务本体，
+ * 语义直接且不额外占用纵向空间。加载中指示器在按钮左侧，错误提示在标题行下方。
+ * 子项目操作（排期/完成/放弃）已移至日程栏，任务栏只负责展示。
  */
 @Composable
 fun TaskDetailContent(
@@ -35,20 +40,54 @@ fun TaskDetailContent(
     subprojects: List<SubprojectEntity>,
     onSubprojectClick: (Long) -> Unit = {},
     taskDescription: String? = null,
+    // AI 拆解入口：放在标题之后、子项目列表之前，作为"针对该任务的拆解动作"。
+    decomposing: Boolean = false,
+    decomposeError: String? = null,
+    onDecompose: () -> Unit = {},
 ) {
     val spacing = LocalZhixingSpacing.current
     Column(modifier = Modifier.padding(horizontal = spacing.lg, vertical = spacing.lg)) {
-        Text(
-            text = taskTitle,
-            style = MaterialTheme.typography.headlineSmall,
-            modifier = Modifier.padding(bottom = if (taskDescription != null) spacing.xs else spacing.md),
-        )
+        // 任务标题 + AI 拆解按钮同行：标题左（weight 占用剩余空间）、按钮右。
+        // "拆解该任务"动作紧邻任务本体，语义直接、不过度抢占纵向空间。
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = taskTitle,
+                style = MaterialTheme.typography.headlineSmall,
+                modifier = Modifier.weight(1f).padding(end = spacing.sm),
+            )
+            if (decomposing) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(20.dp).padding(end = spacing.sm).testTag("DecomposeLoadingIndicator"),
+                    strokeWidth = 2.dp,
+                )
+            }
+            Button(
+                onClick = onDecompose,
+                enabled = !decomposing,
+                modifier = Modifier.testTag("DecomposeButton"),
+            ) {
+                Text("AI 拆解")
+            }
+        }
+
+        if (decomposeError != null) {
+            Text(
+                text = decomposeError,
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(top = spacing.xs).testTag("DecomposeErrorText"),
+            )
+        }
+
         if (taskDescription != null) {
             Text(
                 text = taskDescription,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(bottom = spacing.lg),
+                modifier = Modifier.padding(top = spacing.md),
             )
         }
 
@@ -107,3 +146,4 @@ private fun SubprojectRow(
         }
     }
 }
+

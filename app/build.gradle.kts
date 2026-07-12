@@ -27,9 +27,11 @@ android {
 
         // 后端代理配置（ADR-0001：app 不直调大模型）；token 通过 local.properties 注入，不进版本库
         debug {
-            buildConfigField("String", "DECOMPOSE_BASE_URL", "\"https://your-proxy.example.com/\"")
-            buildConfigField("String", "DECOMPOSE_TOKEN", "\"your-proxy-token\"")
-            buildConfigField("String", "DECOMPOSE_MODEL", "\"deepseek-chat\"")
+            // 默认值留空：UI 输入框不预填假占位，避免用户每次都要手动删除。
+            // 保存校验由 SettingsViewModel.save 负责非空 + 格式检查，不依赖 BuildConfig 兜底。
+            buildConfigField("String", "DECOMPOSE_BASE_URL", "\"\"")
+            buildConfigField("String", "DECOMPOSE_TOKEN", "\"\"")
+            buildConfigField("String", "DECOMPOSE_MODEL", "\"\"")
         }
     }
 

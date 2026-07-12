@@ -87,10 +87,11 @@ fun TaskDetailPage(
     val subprojects by vm.subprojects.collectAsState()
     val scope = rememberCoroutineScope()
 
-    // 拆解服务：测试注入 fake；生产侧按当前设置装配。
-    val service = decompositionService ?: remember {
-        ServiceProvider.decomposition(SettingsStoreFactory.create(context))
-    }
+    // 拆解服务装配点：测试注入 fake。
+    // 生产侧的 service 采用 lazy 构造——不在组合期强制构造 Retrofit，避免 baseUrl
+    // 为空/非法时页面直接崩溃（Retrofit.Builder.baseUrl 对空串抛异常）；
+    // 点击"AI 拆解"时才构造，异常走现有错误提示分支展示给用户。
+    val productionStore = remember { SettingsStoreFactory.create(context) }
 
     var decomposing by remember { mutableStateOf(false) }
     var decomposeError by remember { mutableStateOf<String?>(null) }
@@ -162,16 +163,25 @@ fun TaskDetailPage(
         },
     ) { innerPadding ->
         Column(modifier = Modifier.fillMaxWidth().padding(innerPadding)) {
-            // AI 拆解入口：调用后端代理拆解任务为子项目。
-            DecomposeButtonRow(
+            // AI 拆解入口已下沉到 TaskDetailContent 内部，位于标题/描述之后、
+            // 子项目列表之前，避免悬在标题上方造成阅读断裂。
+            // 子项目的排期/完成/放弃操作已移至日程栏；任务栏只展示 + 创建子项目。
+            TaskDetailContent(
+                taskTitle = title,
+                taskDescription = description,
+                subprojects = subprojects,
                 decomposing = decomposing,
-                error = decomposeError,
+                decomposeError = decomposeError,
                 onDecompose = {
                     decomposeError = null
                     decomposing = true
                     scope.launch {
                         try {
-                            vm.decompose(service, replaceExisting = true)
+                            // 懒构造：点击才装配 Retrofit 服务。空/非法配置在这里抛异常，
+                            // 被下方 catch 捕获后展示错误提示，而非在组合期就让页面崩溃。
+                            val svc = decompositionService
+                                ?: ServiceProvider.decomposition(productionStore)
+                            vm.decompose(svc, replaceExisting = true)
                             decomposeError = null
                         } catch (e: CancellationException) {
                             // 协程取消（如页面离开）不应被当作错误处理，恢复状态即可
@@ -185,13 +195,6 @@ fun TaskDetailPage(
                         }
                     }
                 },
-            )
-
-            // 子项目的排期/完成/放弃操作已移至日程栏；任务栏只展示 + 创建子项目。
-            TaskDetailContent(
-                taskTitle = title,
-                taskDescription = description,
-                subprojects = subprojects,
             )
         }
     }
@@ -235,45 +238,6 @@ fun TaskDetailPage(
                 TextButton(onClick = { pendingAction = null }) { Text("取消") }
             },
         )
-    }
-}
-
-@Composable
-private fun DecomposeButtonRow(
-    decomposing: Boolean,
-    error: String?,
-    onDecompose: () -> Unit,
-) {
-    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Button(
-                onClick = onDecompose,
-                enabled = !decomposing,
-                modifier = Modifier.testTag("DecomposeButton"),
-            ) {
-                Text("AI 拆解")
-            }
-
-            if (decomposing) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(20.dp).testTag("DecomposeLoadingIndicator"),
-                    strokeWidth = 2.dp,
-                )
-            }
-        }
-
-        if (error != null) {
-            Text(
-                text = error,
-                color = MaterialTheme.colorScheme.error,
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.padding(top = 4.dp).testTag("DecomposeErrorText"),
-            )
-        }
     }
 }
 
