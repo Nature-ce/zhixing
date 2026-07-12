@@ -10,15 +10,19 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -39,9 +43,11 @@ import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -62,6 +68,7 @@ import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
@@ -94,6 +101,8 @@ fun WeekSchedulePage(
     onCompleteSubproject: (subprojectId: Long) -> Unit = {},
     onAbandonSubproject: (subprojectId: Long) -> Unit = {},
     onUnscheduleSubproject: (subprojectId: Long) -> Unit = {},
+    // inline 面板编辑回写（名称 / 预期时间），由首页接 VM 持久化到数据库。
+    onUpdateSubproject: (subprojectId: Long, title: String, estimatedDuration: Int?) -> Unit = { _, _, _ -> },
     // 折叠状态由首页 MainScreen 层级持有（与 isScheduleWeekView 同级），
     // 跨 tab / 日周切换时不会随 composition 销毁而丢失。页面本身只读 + 上报翻转请求。
     collapsed: Boolean = false,
@@ -140,9 +149,10 @@ fun WeekSchedulePage(
         showBlockMenu = true
     }
 
-    // backlog 子项目的排期菜单（仅「排期」；完成/放弃已在日程块菜单，不重复）。
-    var showBacklogMenu by remember { mutableStateOf(false) }
-    var backlogMenuTargetId by remember { mutableStateOf(0L) }
+    // backlog 子项目 inline 面板：当前展开的药丸 id（null = 无）。点击药丸 toggle 展开/收起。
+    var expandedPillId by remember { mutableStateOf<Long?>(null) }
+    // 排期对话框目标 + 可见性（「排期」按钮 → 打开日期时间选择器，非立即排期）。
+    var backlogScheduleTargetId by remember { mutableStateOf(0L) }
     var showBacklogScheduleDialog by remember { mutableStateOf(false) }
 
     Box(
@@ -235,8 +245,8 @@ fun WeekSchedulePage(
                     backlogItems = backlogItems,
                     dragState = dragState,
                     onPillClick = { id ->
-                        backlogMenuTargetId = id
-                        showBacklogMenu = true
+                        // toggle 展开/收起 inline 面板。
+                        expandedPillId = if (expandedPillId == id) null else id
                     },
                     onPillPositioned = { id, top, left ->
                         backlogTops[id] = top
@@ -293,6 +303,42 @@ fun WeekSchedulePage(
             }
         }
 
+        // backlog 子项目编辑面板：屏幕中央弹窗。
+        // 全屏半透明遮罩 + 居中面板；点击遮罩（空白区域）→ 收起。
+        val expandedItem = backlogItems.firstOrNull { it.id == expandedPillId }
+        if (expandedItem != null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.32f))
+                    .clickable(
+                        indication = null,
+                        interactionSource = remember { MutableInteractionSource() },
+                    ) { expandedPillId = null }
+                    .testTag("BacklogPanelScrim"),
+                contentAlignment = Alignment.Center,
+            ) {
+                InlineBacklogPanel(
+                    item = expandedItem,
+                    onScheduleClick = { id ->
+                        // 「排期」→ 收起面板并打开日期时间选择器（非立即排期）。
+                        backlogScheduleTargetId = id
+                        expandedPillId = null
+                        showBacklogScheduleDialog = true
+                    },
+                    onUpdateSubproject = onUpdateSubproject,
+                    modifier = Modifier
+                        .widthIn(max = 320.dp)
+                        .padding(horizontal = LocalZhixingSpacing.current.lg)
+                        // 点击面板主体不穿透到遮罩（避免空白处误收起）。
+                        .clickable(
+                            indication = null,
+                            interactionSource = remember { MutableInteractionSource() },
+                        ) { },
+                )
+            }
+        }
+
         // 拖拽视觉提示（drag overlay）
         val state = dragState
         if (state != null) {
@@ -341,36 +387,14 @@ fun WeekSchedulePage(
             )
         }
 
-        // backlog 子项目的操作菜单：仅「排期」。
+        // backlog 子项目「排期」：由 inline 面板的按钮触发（backlogScheduleTargetId 已由面板设置）。
         // 完成/放弃在日程块菜单中已有（排期后的子项目进入格栅成为排期块），故不重复。
-        if (showBacklogMenu) {
-            AlertDialog(
-                onDismissRequest = { showBacklogMenu = false },
-                containerColor = MaterialTheme.colorScheme.surface,
-                tonalElevation = 0.dp,
-                title = { Text("操作") },
-                text = { Text("对这个子项目做什么？") },
-                confirmButton = {
-                    TextButton(
-                        onClick = {
-                            showBacklogMenu = false
-                            showBacklogScheduleDialog = true
-                        },
-                        modifier = Modifier.testTag("BacklogScheduleConfirm"),
-                    ) { Text("排期") }
-                },
-                dismissButton = {
-                    TextButton(onClick = { showBacklogMenu = false }) { Text("取消") }
-                },
-            )
-        }
-
         if (showBacklogScheduleDialog) {
             ScheduleDateTimePickerDialog(
                 initialDate = weekDates.first(),
                 today = weekDates.first(),
                 onConfirm = { selectedDate, start, end ->
-                    onScheduleSubproject(backlogMenuTargetId, selectedDate, start, end)
+                    onScheduleSubproject(backlogScheduleTargetId, selectedDate, start, end)
                     showBacklogScheduleDialog = false
                 },
                 onDismiss = { showBacklogScheduleDialog = false },
@@ -546,6 +570,79 @@ private fun handleWeekGridDrop(
     val duration = backlogItem.estimatedDuration?.takeIf { it > 0 } ?: 30
     val slot = DropScheduleCalculator.slotFromDrop(yPx, rowHeightPx, grid, duration)
     onScheduleSubproject(subprojectId, date, slot.start, slot.end)
+}
+
+/**
+ * backlog 子项目的编辑面板（屏幕中央弹窗，由页面根 overlay 渲染）。
+ *
+ * 内容含：
+ *   - 名称输入框（预填原标题，本地状态；编辑经 [onUpdateSubproject] 持久化）
+ *   - 预期时间输入框（预填原时长，数字键盘）
+ *   - 「排期」按钮 → onScheduleClick(id)（由页面打开日期时间选择器）
+ *
+ * [modifier] 由页面根 overlay 注入（宽度约束 + 点击拦截），以居中卡片形式呈现。
+ *
+ * 编辑持久化：本地状态保证输入响应；[name]/[duration] 变化落定后，
+ * 经 LaunchedEffect 回写数据库（初回组合写入原值是 no-op，无副作用）。
+ *
+ * 放弃的块已被删除，不会进入此函数（面板仅对 backlog 药丸渲染）。
+ */
+@Composable
+private fun InlineBacklogPanel(
+    item: BacklogItem,
+    onScheduleClick: (Long) -> Unit,
+    onUpdateSubproject: (id: Long, title: String, estimatedDuration: Int?) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var name by remember { mutableStateOf(item.title) }
+    var duration by remember { mutableStateOf(item.estimatedDuration?.toString() ?: "") }
+
+    // 名称 / 预期时间落定后持久化回写（本地状态保持输入响应）。
+    LaunchedEffect(name, duration) {
+        val minutes = duration.toIntOrNull()
+        onUpdateSubproject(item.id, name, minutes)
+    }
+
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = LocalZhixingSpacing.current.sm)
+            .testTag("BacklogPanel-${item.id}"),
+        shape = RoundedCornerShape(LocalZhixingRadii.current.md),
+        color = MaterialTheme.colorScheme.surface,
+        tonalElevation = LocalZhixingElevation.current.low,
+    ) {
+        Column(
+            modifier = Modifier.padding(LocalZhixingSpacing.current.md),
+            verticalArrangement = Arrangement.spacedBy(LocalZhixingSpacing.current.sm),
+        ) {
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it },
+                label = { Text("名称") },
+                singleLine = true,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("BacklogPanelName-${item.id}"),
+            )
+            OutlinedTextField(
+                value = duration,
+                onValueChange = { value -> duration = value.filter { it.isDigit() } },
+                label = { Text("预期时间（分钟）") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("BacklogPanelDuration-${item.id}"),
+            )
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                Button(
+                    onClick = { onScheduleClick(item.id) },
+                    modifier = Modifier.testTag("BacklogPanelSchedule-${item.id}"),
+                ) { Text("排期") }
+            }
+        }
+    }
 }
 
 /**

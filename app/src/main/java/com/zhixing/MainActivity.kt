@@ -200,6 +200,9 @@ private fun ScheduleTab(
                 onUnscheduleSubproject = { subprojectId ->
                     scope.launch { weekVm.unscheduleSubproject(subprojectId) }
                 },
+                onUpdateSubproject = { subprojectId, title, estimatedDuration ->
+                    scope.launch { weekVm.updateSubproject(subprojectId, title, estimatedDuration) }
+                },
                 collapsed = collapsedBacklog,
                 onCollapsedChange = onCollapsedBacklogChange,
                 modifier = Modifier.weight(1f),
@@ -232,6 +235,9 @@ private fun ScheduleTab(
                 },
                 onUnscheduleSubproject = { subprojectId ->
                     scope.launch { vm.unscheduleSubproject(subprojectId) }
+                },
+                onUpdateSubproject = { subprojectId, title, estimatedDuration ->
+                    scope.launch { vm.updateSubproject(subprojectId, title, estimatedDuration) }
                 },
                 collapsed = collapsedBacklog,
                 onCollapsedChange = onCollapsedBacklogChange,

@@ -166,6 +166,18 @@ class DayScheduleViewModel(
         return true
     }
 
+    /**
+     * 更新子项目名称与预期时长（inline 面板编辑回写）。
+     *
+     * @return 子项目存在且已更新返回 true；不存在返回 false
+     */
+    suspend fun updateSubproject(subprojectId: Long, title: String, estimatedDuration: Int?): Boolean {
+        val current = subprojectDao.getAllSubprojects().first().firstOrNull { it.id == subprojectId }
+            ?: return false
+        subprojectDao.updateSubproject(subprojectId, title, estimatedDuration)
+        return true
+    }
+
     private val TERMINAL = setOf("已完成", "已放弃")
 
 }

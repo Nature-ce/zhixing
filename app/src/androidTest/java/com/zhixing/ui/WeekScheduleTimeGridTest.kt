@@ -9,6 +9,10 @@ import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextReplacement
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.click
+import androidx.compose.ui.geometry.Offset
 import com.zhixing.ui.theme.ZhixingTheme
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.within
@@ -247,8 +251,10 @@ class WeekScheduleTimeGridTest {
 
     @Test
     fun click_week_backlog_item_then_schedule_invokes_onScheduleSubproject() {
-        // 周视图完整排期流程：点 backlog 药丸 → 菜单「排期」→ 排期对话框确认 → onScheduleSubproject 被调用。
+        // 周视图新交互完整排期流程：点 backlog 药丸 → 展开 inline 面板 → 点面板「排期」
+        // → 排期对话框确认 → onScheduleSubproject 被调用。
         // onScheduleSubproject 周视图签名为 (subprojectId, date, startTime, endTime)。
+        // 子项目建议时长 60min，故结束 = 开始 09:00 + 60min = 10:00。
         val backlog = listOf(BacklogItem(id = 2, title = "划重点", estimatedDuration = 60))
 
         var scheduledArgs: Quadruple<Long, String, Int, Int>? = null
@@ -266,17 +272,17 @@ class WeekScheduleTimeGridTest {
             }
         }
 
-        // 展开 backlog 面板后，点击 backlog 药丸 → 弹出操作菜单
+        // 点击 backlog 药丸 → 展开 inline 面板 → 点面板「排期」（BacklogPanelSchedule-2）
         composeRule.onNodeWithTag("BacklogItem-2").performClick()
         composeRule.waitUntil(timeoutMillis = 5_000) {
-            composeRule.onAllNodesWithTag("BacklogScheduleConfirm").fetchSemanticsNodes().isNotEmpty()
+            composeRule.onAllNodesWithTag("BacklogPanelSchedule-2").fetchSemanticsNodes().isNotEmpty()
         }
-        // 点「排期」→ 排期日期时间选择对话框
-        composeRule.onNodeWithTag("BacklogScheduleConfirm").performClick()
+        composeRule.onNodeWithTag("BacklogPanelSchedule-2").performClick()
+
+        // 排期对话框弹出（默认日期/时间段合法）→ 直接确认
         composeRule.waitUntil(timeoutMillis = 5_000) {
             composeRule.onAllNodesWithTag("ConfirmScheduleTime").fetchSemanticsNodes().isNotEmpty()
         }
-        // 直接确认（默认日期/时间段合法）
         composeRule.onNodeWithTag("ConfirmScheduleTime").performClick()
 
         composeRule.waitUntil(timeoutMillis = 5_000) { scheduledArgs != null }
@@ -285,6 +291,73 @@ class WeekScheduleTimeGridTest {
         assertThat(scheduledArgs?.second).isIn(weekDates)
         assertThat(scheduledArgs?.third).isEqualTo(540)   // 09:00
         assertThat(scheduledArgs?.fourth).isEqualTo(600)   // 10:00 (09:00 + 60min)
+    }
+
+    @Test
+    fun editing_week_backlog_panel_name_invokes_onUpdateSubproject() {
+        // 持久化：周视图 inline 面板编辑名称 → onUpdateSubproject 被回调。
+        val backlog = listOf(BacklogItem(id = 2, title = "划重点", estimatedDuration = 60))
+
+        var updatedArgs: Triple<Long, String, Int?>? = null
+
+        composeRule.setContent {
+            ZhixingTheme {
+                WeekSchedulePage(
+                    weekDates = weekDates,
+                    itemsByDate = emptyMap(),
+                    backlogItems = backlog,
+                    onUpdateSubproject = { id, title, dur -> updatedArgs = Triple(id, title, dur) },
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("BacklogItem-2").performClick()
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodesWithTag("BacklogPanelName-2").fetchSemanticsNodes().isNotEmpty()
+        }
+
+        composeRule.onNodeWithTag("BacklogPanelName-2").performTextReplacement("看第九章")
+
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            updatedArgs != null && updatedArgs?.second == "看第九章"
+        }
+        assertThat(updatedArgs?.first).isEqualTo(2L)
+        assertThat(updatedArgs?.second).isEqualTo("看第九章")
+    }
+
+    @Test
+    fun click_blank_area_outside_week_panel_collapses_it() {
+        // 新行为（周视图）：面板以屏幕中央弹窗形式出现，点击面板外的空白遮罩 → 面板收起。
+        val backlog = listOf(BacklogItem(id = 2, title = "划重点", estimatedDuration = 60))
+
+        composeRule.setContent {
+            ZhixingTheme {
+                WeekSchedulePage(
+                    weekDates = weekDates,
+                    itemsByDate = emptyMap(),
+                    backlogItems = backlog,
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("BacklogItem-2").performClick()
+
+        // 面板展开（屏幕中央弹窗）
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodesWithTag("BacklogPanel-2").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithTag("BacklogPanelScrim").assertIsDisplayed()
+
+        // 点击遮罩上方面板外的空白区域 → 面板收起
+        composeRule.onNodeWithTag("BacklogPanelScrim").performTouchInput {
+            click(Offset(5f, 5f))
+        }
+
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodesWithTag("BacklogPanel-2").fetchSemanticsNodes().isEmpty()
+        }
+        composeRule.onNodeWithTag("BacklogPanel-2").assertDoesNotExist()
+        composeRule.onNodeWithTag("BacklogPanelScrim").assertDoesNotExist()
     }
 }
 

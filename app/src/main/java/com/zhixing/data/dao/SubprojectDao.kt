@@ -31,4 +31,7 @@ interface SubprojectDao {
 
     @Query("DELETE FROM subprojects WHERE id = :id")
     suspend fun deleteSubprojectById(id: Long)
+
+    @Query("UPDATE subprojects SET title = :title, estimatedDuration = :estimatedDuration WHERE id = :id")
+    suspend fun updateSubproject(id: Long, title: String, estimatedDuration: Int?)
 }

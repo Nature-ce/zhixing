@@ -13,6 +13,7 @@ import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -22,6 +23,10 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextReplacement
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.click
+import androidx.compose.ui.geometry.Offset
 import com.zhixing.ui.theme.ZhixingTheme
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.Rule
@@ -486,10 +491,12 @@ class DaySchedulePageTest {
     }
 
     @Test
-    fun click_backlog_item_shows_schedule_menu() {
-        // 日程栏点击 backlog 子项目 → 弹出操作菜单，只显示「排期」
-        // （完成/放弃在日程块菜单里已有，不重复）。
-        val backlog = listOf(BacklogItem(id = 2, title = "划重点"))
+    fun click_backlog_item_expands_inline_panel() {
+        // 新交互：点 backlog 药丸不再弹 AlertDialog，而是展开 inline 编辑面板：
+        //   - 名称输入框（预填原标题）
+        //   - 预期时间输入框（预填原时长）
+        //   - 「排期」按钮
+        val backlog = listOf(BacklogItem(id = 2, title = "划重点", estimatedDuration = 60))
 
         composeRule.setContent {
             ZhixingTheme {
@@ -503,16 +510,55 @@ class DaySchedulePageTest {
 
         composeRule.onNodeWithTag("BacklogItem-2").performClick()
 
-        // 弹窗打开：「排期」操作出现（完成/放弃在日程块菜单已有，不重复）
+        // inline 面板展开：名称 / 预期时间 / 排期按钮均可见
         composeRule.waitUntil(timeoutMillis = 5_000) {
-            composeRule.onAllNodesWithText("排期", substring = true).fetchSemanticsNodes().isNotEmpty()
+            composeRule.onAllNodesWithTag("BacklogPanel-2").fetchSemanticsNodes().isNotEmpty()
         }
-        composeRule.onNodeWithTag("BacklogScheduleConfirm").assertExists()
+        composeRule.onNodeWithTag("BacklogPanelName-2").assertTextContains("划重点")
+        composeRule.onNodeWithTag("BacklogPanelDuration-2").assertTextContains("60")
+        composeRule.onNodeWithTag("BacklogPanelSchedule-2").assertIsDisplayed()
+
+        // 旧 AlertDialog 不再出现
+        composeRule.onNodeWithTag("BacklogScheduleConfirm").assertDoesNotExist()
+    }
+
+    @Test
+    fun editing_backlog_panel_name_invokes_onUpdateSubproject() {
+        // 持久化：在 inline 面板里编辑名称 → onUpdateSubproject 被回调。
+        val backlog = listOf(BacklogItem(id = 2, title = "划重点", estimatedDuration = 60))
+
+        var updatedArgs: Triple<Long, String, Int?>? = null
+
+        composeRule.setContent {
+            ZhixingTheme {
+                DaySchedulePage(
+                    date = "2026-07-08",
+                    scheduleItems = emptyList(),
+                    backlogItems = backlog,
+                    onUpdateSubproject = { id, title, dur -> updatedArgs = Triple(id, title, dur) },
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("BacklogItem-2").performClick()
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodesWithTag("BacklogPanelName-2").fetchSemanticsNodes().isNotEmpty()
+        }
+
+        // 清空后输入新名称 → 持久化回调携带新名称。
+        composeRule.onNodeWithTag("BacklogPanelName-2").performTextReplacement("看第九章")
+
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            updatedArgs != null && updatedArgs?.second == "看第九章"
+        }
+        assertThat(updatedArgs?.first).isEqualTo(2L)
+        assertThat(updatedArgs?.second).isEqualTo("看第九章")
     }
 
     @Test
     fun confirm_schedule_from_backlog_menu_invokes_onScheduleSubproject() {
-        // 完整排期流程：点 backlog 子项目 → 菜单「排期」→ 排期对话框确认 → onScheduleSubproject 被调用。
+        // 新交互完整排期流程：点 backlog 药丸 → 展开 inline 面板 → 点面板「排期」
+        // → 排期对话框确认 → onScheduleSubproject 被调用。
         // 子项目建议时长 60min，故结束 = 开始 09:00 + 60min = 10:00。
         val backlog = listOf(BacklogItem(id = 2, title = "划重点", estimatedDuration = 60))
 
@@ -529,12 +575,12 @@ class DaySchedulePageTest {
             }
         }
 
-        // 点 backlog 子项目 → 弹出操作菜单 → 点「排期」
+        // 点 backlog 药丸 → 展开 inline 面板 → 点面板「排期」（BacklogPanelSchedule-2）
         composeRule.onNodeWithTag("BacklogItem-2").performClick()
         composeRule.waitUntil(timeoutMillis = 5_000) {
-            composeRule.onAllNodesWithTag("BacklogScheduleConfirm").fetchSemanticsNodes().isNotEmpty()
+            composeRule.onAllNodesWithTag("BacklogPanelSchedule-2").fetchSemanticsNodes().isNotEmpty()
         }
-        composeRule.onNodeWithTag("BacklogScheduleConfirm").performClick()
+        composeRule.onNodeWithTag("BacklogPanelSchedule-2").performClick()
 
         // 排期对话框弹出（默认 09:00-10:00 合法）→ 直接确认
         composeRule.waitUntil(timeoutMillis = 5_000) {
@@ -546,6 +592,42 @@ class DaySchedulePageTest {
         assertThat(scheduledArgs?.first).isEqualTo(2L)
         assertThat(scheduledArgs?.second).isEqualTo(540)   // 09:00
         assertThat(scheduledArgs?.third).isEqualTo(600)    // 10:00
+    }
+
+    @Test
+    fun click_blank_area_outside_panel_collapses_it() {
+        // 新行为：面板以屏幕中央弹窗形式出现，点击面板外的空白遮罩 → 面板收起。
+        val backlog = listOf(BacklogItem(id = 2, title = "划重点", estimatedDuration = 60))
+
+        composeRule.setContent {
+            ZhixingTheme {
+                DaySchedulePage(
+                    date = "2026-07-08",
+                    scheduleItems = emptyList(),
+                    backlogItems = backlog,
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("BacklogItem-2").performClick()
+
+        // 面板展开（屏幕中央弹窗）
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodesWithTag("BacklogPanel-2").fetchSemanticsNodes().isNotEmpty()
+        }
+        // 全屏遮罩存在
+        composeRule.onNodeWithTag("BacklogPanelScrim").assertIsDisplayed()
+
+        // 点击遮罩上方面板外的空白区域 → 面板收起
+        composeRule.onNodeWithTag("BacklogPanelScrim").performTouchInput {
+            click(Offset(5f, 5f))
+        }
+
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodesWithTag("BacklogPanel-2").fetchSemanticsNodes().isEmpty()
+        }
+        composeRule.onNodeWithTag("BacklogPanel-2").assertDoesNotExist()
+        composeRule.onNodeWithTag("BacklogPanelScrim").assertDoesNotExist()
     }
 
     @Test

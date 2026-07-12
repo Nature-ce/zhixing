@@ -146,6 +146,45 @@ class WeekScheduleViewModelTest {
         }
     }
 
+    @Test
+    fun update_subproject_changes_title_and_duration() {
+        // 持久化：面板编辑名称 / 预期时间 → 写回数据库。
+        runBlocking {
+            val taskId = taskDao.insertTask(TaskEntity(title = "读书笔记", createdAt = 1_000L))
+            val sub = subprojectDao.insertSubproject(
+                SubprojectEntity(taskId = taskId, title = "选书目", status = "backlog", estimatedDuration = 30, createdAt = 2_000L)
+            )
+
+            val vm = WeekScheduleViewModel(
+                weekDates = listOf("2026-07-06", "2026-07-07", "2026-07-08", "2026-07-09", "2026-07-10", "2026-07-11", "2026-07-12"),
+                scheduleDao = scheduleDao,
+                subprojectDao = subprojectDao,
+                taskDao = taskDao,
+            )
+
+            val result = vm.updateSubproject(sub, "划重点", 60)
+
+            assertThat(result).isEqualTo(true)
+            val updated = subprojectDao.getAllSubprojects().first().first { it.id == sub }
+            assertThat(updated.title).isEqualTo("划重点")
+            assertThat(updated.estimatedDuration).isEqualTo(60)
+        }
+    }
+
+    @Test
+    fun update_subproject_returns_false_when_subproject_missing() {
+        val vm = WeekScheduleViewModel(
+            weekDates = listOf("2026-07-06", "2026-07-07", "2026-07-08", "2026-07-09", "2026-07-10", "2026-07-11", "2026-07-12"),
+            scheduleDao = scheduleDao,
+            subprojectDao = subprojectDao,
+            taskDao = taskDao,
+        )
+
+        val result = runBlocking { vm.updateSubproject(999L, "划重点", 60) }
+
+        assertThat(result).isEqualTo(false)
+    }
+
     /**
      * 行为 #3：周视图 backlog 条目应携带来源任务的标题（taskTitle）。
      */

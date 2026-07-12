@@ -46,6 +46,32 @@ class DayScheduleViewModelScheduleTest {
     }
 
     @Test
+    fun update_subproject_changes_title_and_duration() {
+        // 持久化：面板编辑名称 / 预期时间 → 写回数据库。
+        runBlocking {
+            val taskId = taskDao.insertTask(TaskEntity(title = "读书笔记", createdAt = 1_000L))
+            val sub = subprojectDao.insertSubproject(
+                SubprojectEntity(taskId = taskId, title = "选书目", status = "backlog", estimatedDuration = 30, createdAt = 2_000L)
+            )
+
+            val vm = DayScheduleViewModel(
+                date = "2026-07-09",
+                taskDao = taskDao,
+                scheduleDao = scheduleDao,
+                subprojectDao = subprojectDao,
+                currentTimeProvider = { 0 },
+            )
+
+            val result = vm.updateSubproject(sub, "划重点", 60)
+
+            assertThat(result).isEqualTo(true)
+            val updated = subprojectDao.getAllSubprojects().first().first { it.id == sub }
+            assertThat(updated.title).isEqualTo("划重点")
+            assertThat(updated.estimatedDuration).isEqualTo(60)
+        }
+    }
+
+    @Test
     fun schedule_backlog_subproject_writes_schedule_and_updates_status() {
         runBlocking {
         val taskId = taskDao.insertTask(TaskEntity(title = "读书笔记", createdAt = 1_000L))
