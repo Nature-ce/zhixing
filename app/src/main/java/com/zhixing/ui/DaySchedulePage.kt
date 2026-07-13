@@ -232,12 +232,19 @@ fun DaySchedulePage(
                         scheduleItems.sortedBy { it.startTime }.forEach { item ->
                             ScheduleBlock(
                                 item = item,
-                                grid = grid,
-                                rowHeight = rowHeight,
+                                yPx = grid.yPositionFor(item.startTime, rowHeight.value),
+                                hPx = grid.heightFor(item.startTime, item.endTime, rowHeight.value),
                                 onClick = { subprojectId ->
                                     menuTargetId = subprojectId
                                     showBlockMenu = true
                                 },
+                                iconSize = 16.dp,
+                                titleStyle = MaterialTheme.typography.bodySmall,
+                                timeFontSize = 10.sp,
+                                horizontalPadding = 2.dp,
+                                rowPadding = LocalZhixingSpacing.current.xs,
+                                tagPrefix = "ScheduleBlock",
+                                placeAnimationLabel = "blockPlace",
                             )
                         }
                     }
@@ -362,40 +369,22 @@ fun DaySchedulePage(
             }
         }
 
-        // 已排期项目块的操作菜单（完成/放弃）。
+        // 已排期项目块的操作菜单（回退 / 完成 / 放弃）。
         if (showBlockMenu) {
-            AlertDialog(
-                onDismissRequest = { showBlockMenu = false },
-                // M3 AlertDialog 默认 surface + tonalElevation=6dp 强叠加 surfaceTint，
-                // 在浅色 surface 上会被感知为淡紫蓝；钉死暖白容器并归零 tonal 脱离叠加。
-                containerColor = MaterialTheme.colorScheme.surface,
-                tonalElevation = 0.dp,
-                title = { Text("操作") },
-                text = { Text("对这个子项目做什么？") },
-                confirmButton = {
-                    Row {
-                        TextButton(
-                            onClick = {
-                                onUnscheduleSubproject(menuTargetId)
-                                showBlockMenu = false
-                            },
-                            modifier = Modifier.testTag("UnscheduleSubprojectConfirm"),
-                        ) { Text("回退") }
-                        TextButton(
-                            onClick = {
-                                onCompleteSubproject(menuTargetId)
-                                showBlockMenu = false
-                            },
-                            modifier = Modifier.testTag("CompleteSubprojectConfirm"),
-                        ) { Text("完成") }
-                        TextButton(
-                            onClick = {
-                                onAbandonSubproject(menuTargetId)
-                                showBlockMenu = false
-                            },
-                        ) { Text("放弃") }
-                    }
+            ScheduleBlockMenu(
+                onUnschedule = {
+                    onUnscheduleSubproject(menuTargetId)
+                    showBlockMenu = false
                 },
+                onComplete = {
+                    onCompleteSubproject(menuTargetId)
+                    showBlockMenu = false
+                },
+                onAbandon = {
+                    onAbandonSubproject(menuTargetId)
+                    showBlockMenu = false
+                },
+                onDismiss = { showBlockMenu = false },
             )
         }
 
@@ -414,101 +403,6 @@ fun DaySchedulePage(
                 },
                 onDismiss = { showBacklogScheduleDialog = false },
             )
-        }
-    }
-}
-
-@Composable
-private fun ScheduleBlock(
-    item: ScheduleItem,
-    grid: TimeGridLayout,
-    rowHeight: androidx.compose.ui.unit.Dp,
-    onClick: ((Long) -> Unit)? = null,
-) {
-    val dimmed = item.subprojectStatus in TERMINAL_SUBPROJECT || item.isOverdue
-    val textColor = if (dimmed) {
-        MaterialTheme.colorScheme.onSurfaceVariant
-    } else {
-        MaterialTheme.colorScheme.onSurface
-    }
-    val yPx = grid.yPositionFor(item.startTime, rowHeight.value)
-    val hPx = grid.heightFor(item.startTime, item.endTime, rowHeight.value)
-
-    // 已排项放置弹入：首次组合时 scale 从 0.92 → 1.0 轻弹，
-    // 模拟"放入时间格"的活泼手感（原有项目不重复触发）。
-    var placed by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { placed = true }
-    val placeScale by animateFloatAsState(
-        targetValue = if (placed) 1f else 0.92f,
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioLowBouncy,
-            stiffness = Spring.StiffnessLow,
-        ),
-        label = "blockPlace",
-    )
-
-    Box(
-        modifier = Modifier
-            .offset(y = yPx.dp)
-            .height(hPx.dp)
-            .fillMaxWidth()
-            .padding(vertical = 1.dp, horizontal = 2.dp)
-            .then(
-                if (onClick != null) {
-                    Modifier.clickable { onClick(item.subprojectId) }
-                } else {
-                    Modifier
-                }
-            )
-            .testTag("ScheduleBlock-${item.id}")
-            .semantics { this.dimmed = dimmed },
-    ) {
-        Surface(
-            modifier = Modifier
-                .fillMaxSize()
-                .scale(placeScale)
-                .then(if (dimmed) Modifier.alpha(0.5f) else Modifier),
-            color = MaterialTheme.colorScheme.surface,
-            tonalElevation = LocalZhixingElevation.current.low,
-            shape = RoundedCornerShape(LocalZhixingRadii.current.sm),
-        ) {
-            Row(
-                modifier = Modifier.padding(LocalZhixingSpacing.current.xs),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                // 状态图标：已完成（绿钩）优先于逾期（灰闹钟）。放弃的块已被删除，不会进入此函数。
-                // 尺寸 16dp，语义一眼可辨；与"已终结"纯弱化（无图标）区分。
-                val dayIcon = when {
-                    item.subprojectStatus == "已完成" ->
-                        Triple(Icons.Filled.Check, LocalZhixingStatus.current.doneFg, "已完成")
-                    item.isOverdue ->
-                        Triple(Icons.Filled.Alarm, MaterialTheme.colorScheme.onSurfaceVariant, "逾期")
-                    else -> null
-                }
-                if (dayIcon != null) {
-                    Icon(
-                        imageVector = dayIcon.first,
-                        contentDescription = dayIcon.third,
-                        tint = dayIcon.second,
-                        modifier = Modifier.size(16.dp),
-                    )
-                    Spacer(modifier = Modifier.width(2.dp))
-                }
-                // 标题占满剩余空间（weight），放不下的省略号截断；时间段始终完整显示在右侧同行。
-                Text(
-                    text = item.subprojectTitle,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = textColor,
-                    maxLines = 1,
-                    modifier = Modifier.weight(1f),
-                )
-                Text(
-                    text = formatTimeRange(item.startTime, item.endTime),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 10.sp,
-                )
-            }
         }
     }
 }
@@ -551,284 +445,6 @@ private fun handleGridDrop(
         ?: backlogItem.estimatedDuration?.takeIf { it > 0 } ?: 30
     val slot = DropScheduleCalculator.slotFromDrop(yPx, rowHeightPx, grid, duration)
     onScheduleSubproject(subprojectId, slot.start, slot.end)
-}
-
-/**
- * Backlog 药丸流面板（方案 2 选定）。
- *
- * 顶部"待排期 N"徽章 + FlowRow 药丸列表。每个药丸同时支持：
- *   - tap → onPillClick(id)（打开排期菜单）
- *   - long-press-drag → 通过 onDragStart/onDrag/onDragEnd 把子项目排到格栅
- *
- * 药丸用 Surface 自定义而非 InputChip，以便 clickable 与 detectDragGesturesAfterLongPress
- * 同链共存、由页面层统一处理两套手势。
- */
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun BacklogPillSection(
-    backlogItems: List<BacklogItem>,
-    dragState: DragState?,
-    onPillClick: (Long) -> Unit,
-    onPillPositioned: (id: Long, top: Float, left: Float) -> Unit,
-    onBacklogPositioned: (top: Float) -> Unit,
-    onDragStart: (Long) -> Unit,
-    onDrag: (change: androidx.compose.ui.input.pointer.PointerInputChange, id: Long) -> Unit,
-    onDragEnd: () -> Unit,
-    onDragCancel: () -> Unit,
-    // 折叠状态由页面外部（最终为首页 MainScreen 层级）持有，页面只读 + 上报翻转请求。
-    collapsed: Boolean,
-    onCollapsedChange: (Boolean) -> Unit,
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag("BacklogSection")
-            .onGloballyPositioned { onBacklogPositioned(it.boundsInRoot().top) },
-    ) {
-        val backlineIconRotation by animateFloatAsState(
-            targetValue = if (collapsed) 0f else 180f,
-            animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing),
-            label = "backlogArrow",
-        )
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable { onCollapsedChange(!collapsed) }
-                .testTag("BacklogHeader")
-                .heightIn(min = 48.dp)
-                .padding(bottom = LocalZhixingSpacing.current.sm),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text("待排期", style = MaterialTheme.typography.titleMedium)
-            // 箭头随展开/收起旋转 180°，折叠态箭头朝右、展开态朝下，
-            // spring 旋转替代显隐，让状态变化更连贯、有弹性。
-            Icon(
-                imageVector = Icons.Default.ArrowDropDown,
-                contentDescription = if (collapsed) "展开" else "收起",
-                modifier = Modifier.rotate(backlineIconRotation),
-            )
-        }
-        // 展开/收起动画：fade + 竖向展开，采用 tween 缓动替代弹簧——
-        // 无过冲振荡，避免展开时"抖动大"的廉价感（弹簧阻尼低会反复弹）。
-        AnimatedVisibility(
-            visible = !collapsed,
-            enter = fadeIn(animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing)) + expandVertically(
-                animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing),
-            ),
-            exit = fadeOut(animationSpec = tween(durationMillis = 250)) + shrinkVertically(
-                animationSpec = tween(durationMillis = 250),
-            ),
-        ) {
-            // 按父任务归组；每组可独立折叠/展开（页面内临时态，页面销毁即重置）。
-            val groups = BacklogGrouper.group(backlogItems)
-            val collapsedGroups = remember { mutableStateMapOf<Long, Boolean>() }
-            Column(modifier = Modifier.fillMaxWidth()) {
-                groups.forEach { group ->
-                    val groupCollapsed = collapsedGroups[group.taskId] ?: false
-                    val groupIconRotation by animateFloatAsState(
-                        targetValue = if (groupCollapsed) 0f else 180f,
-                        animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing),
-                        label = "groupArrow",
-                    )
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { collapsedGroups[group.taskId] = !groupCollapsed }
-                            .testTag("TaskGroupHeader-${group.taskId}")
-                            .heightIn(min = 48.dp)
-                            .padding(top = LocalZhixingSpacing.current.sm, bottom = LocalZhixingSpacing.current.xs),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(group.taskTitle, style = MaterialTheme.typography.titleSmall)
-                        Icon(
-                            imageVector = Icons.Default.ArrowDropDown,
-                            contentDescription = if (groupCollapsed) "展开" else "收起",
-                            modifier = Modifier.rotate(groupIconRotation),
-                        )
-                    }
-                    // 任务组折叠/展开：同样用 tween 缓动，与顶层 Backlog 折叠手感一致、无抖动。
-                    AnimatedVisibility(
-                        visible = !groupCollapsed,
-                        enter = fadeIn(animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing)) + expandVertically(
-                            animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing),
-                        ),
-                        exit = fadeOut(animationSpec = tween(durationMillis = 250)) + shrinkVertically(
-                            animationSpec = tween(durationMillis = 250),
-                        ),
-                    ) {
-                        FlowRow(horizontalArrangement = Arrangement.spacedBy(LocalZhixingSpacing.current.sm)) {
-                            group.items.forEach { backlogItem ->
-                                val isDragging = dragState?.subprojectId == backlogItem.id
-                                // 拖拽启动时药丸 scale 微放大 + 40% 透明，
-                                // 轻弹反馈"被拿起"的重量感（LowBouncy 轻弹不抖）。
-                                val pillScale by animateFloatAsState(
-                                    targetValue = if (isDragging) 1.05f else 1f,
-                                    animationSpec = spring(
-                                        dampingRatio = Spring.DampingRatioLowBouncy,
-                                        stiffness = Spring.StiffnessLow,
-                                    ),
-                                    label = "pillScale",
-                                )
-                                Surface(
-                                    modifier = Modifier
-                                        .testTag("BacklogItem-${backlogItem.id}")
-                                        .onGloballyPositioned {
-                                            onPillPositioned(
-                                                backlogItem.id,
-                                                it.boundsInRoot().top,
-                                                it.boundsInRoot().left,
-                                            )
-                                        }
-                                        .pointerInput(backlogItem.id) {
-                                            detectDragGesturesAfterLongPress(
-                                                onDragStart = { onDragStart(backlogItem.id) },
-                                                onDrag = { change, _ -> onDrag(change, backlogItem.id) },
-                                                onDragEnd = { onDragEnd() },
-                                                onDragCancel = { onDragCancel() },
-                                            )
-                                        }
-                                        .clickable { onPillClick(backlogItem.id) }
-                                        .scale(pillScale)
-                                        .then(if (isDragging) Modifier.alpha(0.4f) else Modifier),
-                                    shape = RoundedCornerShape(LocalZhixingRadii.current.pill),
-                                    color = LocalZhixingStatus.current.backlogBg,
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = LocalZhixingSpacing.current.md, vertical = LocalZhixingSpacing.current.sm),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(LocalZhixingSpacing.current.sm),
-                                    ) {
-                                        Text(
-                                            text = backlogItem.title,
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = LocalZhixingStatus.current.backlogFg,
-                                            maxLines = 1,
-                                        )
-                                        backlogItem.estimatedDuration?.let { dur ->
-                                            Text(
-                                                text = "${dur}分",
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = LocalZhixingStatus.current.backlogFg,
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-/**
- * backlog 子项目的编辑面板（屏幕中央弹窗，由页面根 overlay 渲染）。
- *
- * 内容含：
- *   - 名称输入框（预填原标题，本地状态；编辑经 [onUpdateSubproject] 持久化）
- *   - 预期时间输入框（预填原时长，数字键盘）
- *   - 「排期」按钮 → onScheduleClick(id)（由页面打开日期时间选择器）
- *
- * [modifier] 由页面根 overlay 注入（宽度约束 + 点击拦截），以居中卡片形式呈现。
- *
- * 编辑持久化：本地状态保证输入响应；[name]/[duration] 变化落定后，
- * 经 LaunchedEffect 回写数据库（初回组合写入原值是 no-op，无副作用）。
- *
- * 放弃的块已被删除，不会进入此函数（面板仅对 backlog 药丸渲染）。
- */
-@Composable
-private fun InlineBacklogPanel(
-    item: BacklogItem,
-    onScheduleClick: (Long) -> Unit,
-    onUpdateSubproject: (id: Long, title: String, estimatedDuration: Int?) -> Unit,
-    // 把面板内最新编辑的预期时间同步到 overlay，供排期对话框即时使用（不依赖 VM 异步刷新时序）。
-    onDurationChange: (Int?) -> Unit = {},
-    onClose: () -> Unit = {},
-    modifier: Modifier = Modifier,
-) {
-    var name by remember { mutableStateOf(item.title) }
-    var duration by remember { mutableStateOf(item.estimatedDuration?.toString() ?: "") }
-
-    // 名称 / 预期时间落定后持久化回写（本地状态保持输入响应）。
-    // 同步最新值到 overlay，让排期对话框即时拿到面板里编辑的预期时间。
-    LaunchedEffect(name, duration) {
-        val minutes = duration.toIntOrNull()
-        onUpdateSubproject(item.id, name, minutes)
-        onDurationChange(minutes)
-    }
-
-    Surface(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(vertical = LocalZhixingSpacing.current.sm)
-            .testTag("BacklogPanel-${item.id}"),
-        shape = RoundedCornerShape(LocalZhixingRadii.current.md),
-        color = MaterialTheme.colorScheme.surface,
-        tonalElevation = LocalZhixingElevation.current.low,
-        // 柔和阴影让面板从透明背景中浮起，与背景区分。
-        shadowElevation = LocalZhixingElevation.current.medium,
-    ) {
-        Column(
-            modifier = Modifier.padding(LocalZhixingSpacing.current.md),
-            verticalArrangement = Arrangement.spacedBy(LocalZhixingSpacing.current.md),
-        ) {
-            // 标题行：图标 + 「编辑子项目」，传达面板用途。
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(LocalZhixingSpacing.current.sm),
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.Edit,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(18.dp),
-                )
-                Text(
-                    text = "编辑子项目",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-            }
-            OutlinedTextField(
-                value = name,
-                onValueChange = { name = it },
-                label = { Text("名称") },
-                singleLine = true,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("BacklogPanelName-${item.id}"),
-            )
-            OutlinedTextField(
-                value = duration,
-                onValueChange = { value -> duration = value.filter { it.isDigit() } },
-                label = { Text("预期时间（分钟）") },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("BacklogPanelDuration-${item.id}"),
-            )
-            // 主次按钮分层：「取消」（文本）+「排期」（实心主按钮）。
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                TextButton(
-                    onClick = { onClose() },
-                    modifier = Modifier.testTag("BacklogPanelCancel-${item.id}"),
-                ) { Text("取消") }
-                Spacer(modifier = Modifier.width(LocalZhixingSpacing.current.sm))
-                Button(
-                    onClick = { onScheduleClick(item.id) },
-                    modifier = Modifier.testTag("BacklogPanelSchedule-${item.id}"),
-                ) { Text("排期") }
-            }
-        }
-    }
 }
 
 /**
