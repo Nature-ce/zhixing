@@ -517,9 +517,40 @@ class DaySchedulePageTest {
         composeRule.onNodeWithTag("BacklogPanelName-2").assertTextContains("划重点")
         composeRule.onNodeWithTag("BacklogPanelDuration-2").assertTextContains("60")
         composeRule.onNodeWithTag("BacklogPanelSchedule-2").assertIsDisplayed()
+        // 面板含「取消」次级按钮，点它应可收起
+        composeRule.onNodeWithTag("BacklogPanelCancel-2").assertIsDisplayed()
 
         // 旧 AlertDialog 不再出现
         composeRule.onNodeWithTag("BacklogScheduleConfirm").assertDoesNotExist()
+    }
+
+    @Test
+    fun click_cancel_on_panel_collapses_it() {
+        // 面板底部「取消」按钮 → 收起面板。
+        val backlog = listOf(BacklogItem(id = 2, title = "划重点", estimatedDuration = 60))
+
+        composeRule.setContent {
+            ZhixingTheme {
+                DaySchedulePage(
+                    date = "2026-07-08",
+                    scheduleItems = emptyList(),
+                    backlogItems = backlog,
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("BacklogItem-2").performClick()
+
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodesWithTag("BacklogPanel-2").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithTag("BacklogPanelCancel-2").performClick()
+
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodesWithTag("BacklogPanel-2").fetchSemanticsNodes().isEmpty()
+        }
+        composeRule.onNodeWithTag("BacklogPanel-2").assertDoesNotExist()
+        composeRule.onNodeWithTag("BacklogPanelScrim").assertDoesNotExist()
     }
 
     @Test
@@ -592,6 +623,43 @@ class DaySchedulePageTest {
         assertThat(scheduledArgs?.first).isEqualTo(2L)
         assertThat(scheduledArgs?.second).isEqualTo(540)   // 09:00
         assertThat(scheduledArgs?.third).isEqualTo(600)    // 10:00
+    }
+
+    @Test
+    fun editing_duration_in_panel_reflects_in_schedule_end_preview() {
+        // 行为契约：在 inline 面板里把预期时间从 60 改成 90，
+        // 排期对话框的结束预览应即时反映新值（09:00 + 90min = 10:30），
+        // 而不是沿用默认 60 算出的 10:00。
+        val backlog = listOf(BacklogItem(id = 2, title = "划重点", estimatedDuration = 60))
+
+        composeRule.setContent {
+            ZhixingTheme {
+                DaySchedulePage(
+                    date = "2026-07-08",
+                    scheduleItems = emptyList(),
+                    backlogItems = backlog,
+                    onScheduleSubproject = { _, _, _ -> },
+                )
+            }
+        }
+
+        // 点 backlog 药丸 → 展开 inline 面板
+        composeRule.onNodeWithTag("BacklogItem-2").performClick()
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodesWithTag("BacklogPanelDuration-2").fetchSemanticsNodes().isNotEmpty()
+        }
+
+        // 把预期时间从 60 改成 90
+        composeRule.onNodeWithTag("BacklogPanelDuration-2").performTextReplacement("90")
+
+        // 点面板「排期」→ 打开排期对话框
+        composeRule.onNodeWithTag("BacklogPanelSchedule-2").performClick()
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodesWithTag("ScheduleEndTimePreview").fetchSemanticsNodes().isNotEmpty()
+        }
+
+        // 结束预览应反映面板里新编辑的 90min：09:00 + 90 = 10:30
+        composeRule.onNodeWithTag("ScheduleEndTimePreview").assertTextEquals("10:30")
     }
 
     @Test

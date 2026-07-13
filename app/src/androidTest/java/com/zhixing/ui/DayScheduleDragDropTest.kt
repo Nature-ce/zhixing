@@ -13,10 +13,12 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -408,5 +410,79 @@ class DayScheduleDragDropTest {
         composeRule.onNodeWithTag("DragGlimpse", useUnmergedTree = true)
             .assertIsDisplayed()
             .assertTextEquals("选书目")
+    }
+
+    /**
+     * 在 inline 面板里把预期时间从 60 改成 90，关闭面板后拖拽药丸到格栅排期，
+     * 结束时间应反映面板里新编辑的 90min（09:00 + 90 = 10:30 = 630），
+     * 而非沿用 backlog prop 的旧值 60 算出的 600。
+     *
+     * 关键时序：面板关闭后 overlay 已销毁，拖拽路径必须仍能拿到"最新编辑值"。
+     */
+    @Test
+    fun dragAfterPanelEdit_usesEditedDurationNotInProp() {
+        val captured = AtomicReference<Triple<Long, Int, Int>?>(null)
+
+        composeRule.setContent {
+            ZhixingTheme {
+                DaySchedulePage(
+                    date = "2026-07-09",
+                    scheduleItems = emptyList(),
+                    // prop 中 estimatedDuration 保持 60（模拟 VM 异步刷新尚未完成），
+                    // 面板里改成 90 后拖拽应即时使用 90。
+                    backlogItems = listOf(
+                        BacklogItem(id = 1, title = "选书目", estimatedDuration = 60),
+                    ),
+                    onScheduleSubproject = { id, start, end ->
+                        captured.set(Triple(id, start, end))
+                    },
+                )
+            }
+        }
+
+        composeRule.waitForIdle()
+
+        // 1. 点药丸 → 展开 inline 面板 → 把预期时间 60 改成 90
+        composeRule.onNodeWithTag("BacklogItem-1", useUnmergedTree = true).performClick()
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodesWithTag("BacklogPanelDuration-1")
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithTag("BacklogPanelDuration-1", useUnmergedTree = true)
+            .performTextReplacement("90")
+        composeRule.waitForIdle()
+
+        // 2. 关闭面板（点「取消」），overlay 随之销毁
+        composeRule.onNodeWithTag("BacklogPanelCancel-1", useUnmergedTree = true).performClick()
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodesWithTag("BacklogPanel-1").fetchSemanticsNodes().isEmpty()
+        }
+
+        // 3. 长按拖拽药丸到格栅第 6 行（09:00 = 540）
+        val gridNode = composeRule.onNodeWithTag("ScheduleDropTarget", useUnmergedTree = true)
+            .fetchSemanticsNode()
+        val gridTop = gridNode.boundsInRoot.top
+        val rowHeightPx = gridNode.size.height / 34f
+        val targetRootY = gridTop + 6 * rowHeightPx
+
+        val backlogNode = composeRule.onNodeWithTag("BacklogItem-1", useUnmergedTree = true)
+            .fetchSemanticsNode()
+        val backlogRootTop = backlogNode.boundsInRoot.top
+        val localTargetY = targetRootY - backlogRootTop
+
+        composeRule.onNodeWithTag("BacklogItem-1", useUnmergedTree = true).performTouchInput {
+            down(center)
+            moveTo(Offset(center.x, localTargetY), delayMillis = 800L)
+            up()
+        }
+
+        composeRule.waitForIdle()
+
+        val result = captured.get()
+        assertThat(result).isNotNull
+        assertThat(result!!.first).isEqualTo(1L)
+        // 落在第 6 行 → 09:00 = 540；面板编辑后时长 90 → end = 630（而非 prop 旧值 600）
+        assertThat(result.second).isEqualTo(540)
+        assertThat(result.third).isEqualTo(630)
     }
 }

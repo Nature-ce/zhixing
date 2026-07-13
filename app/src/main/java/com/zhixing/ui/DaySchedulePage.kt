@@ -39,6 +39,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.material3.AlertDialog
@@ -61,6 +62,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.pointerInput
@@ -153,6 +155,10 @@ fun DaySchedulePage(
     // 排期对话框目标 + 可见性（「排期」按钮 → 打开日期时间选择器，非立即排期）。
     var backlogScheduleTargetId by remember { mutableStateOf(0L) }
     var showBacklogScheduleDialog by remember { mutableStateOf(false) }
+    // 面板内最新编辑的预期时间（分钟），按子项目 id 索引。
+    // 面板每次编辑经 onDurationChange 同步到这里；不随 overlay 销毁，
+    // 供排期对话框与拖拽路径即时使用（不依赖 VM 异步刷新时序）。
+    val latestDurationById = remember { mutableStateMapOf<Long, Int>() }
 
     // 用 Box 包裹内容 + glimpse overlay。overlay 在同一个坐标容器内，
     // 从而用 fingerRootY - containerTopPx 就能把 glimpse 定位到手指位置。
@@ -287,6 +293,7 @@ fun DaySchedulePage(
                                 grid = grid,
                                 rowHeightPx = rowHeightPx,
                                 backlogItems = backlogItems,
+                                latestDurationById = latestDurationById,
                                 onScheduleSubproject = onScheduleSubproject,
                             )
                         }
@@ -307,7 +314,7 @@ fun DaySchedulePage(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.32f))
+                    .background(Color.Transparent)
                     .clickable(
                         indication = null,
                         interactionSource = remember { MutableInteractionSource() },
@@ -324,6 +331,11 @@ fun DaySchedulePage(
                         showBacklogScheduleDialog = true
                     },
                     onUpdateSubproject = onUpdateSubproject,
+                    // 把面板内最新编辑的预期时间同步到顶层 Map，供两条排期路径即时使用。
+                    onDurationChange = { minutes ->
+                        if (minutes != null) latestDurationById[expandedItem.id] = minutes
+                    },
+                    onClose = { expandedPillId = null },
                     modifier = Modifier
                         .widthIn(max = 320.dp)
                         .padding(horizontal = LocalZhixingSpacing.current.lg)
@@ -393,6 +405,9 @@ fun DaySchedulePage(
             ScheduleDateTimePickerDialog(
                 initialDate = date,
                 today = date,
+                suggestedDurationMinutes = latestDurationById[backlogScheduleTargetId]
+                    ?: backlogItems.firstOrNull { it.id == backlogScheduleTargetId }?.estimatedDuration
+                    ?: 60,
                 onConfirm = { selectedDate, start, end ->
                     onScheduleSubproject(backlogScheduleTargetId, start, end)
                     showBacklogScheduleDialog = false
@@ -519,6 +534,7 @@ private fun handleGridDrop(
     grid: TimeGridLayout,
     rowHeightPx: Float,
     backlogItems: List<BacklogItem>,
+    latestDurationById: Map<Long, Int>,
     onScheduleSubproject: (Long, Int, Int) -> Unit,
 ) {
     if (gridTopPx <= 0f) return
@@ -529,7 +545,10 @@ private fun handleGridDrop(
     val yPx = fingerRootY - gridTopPx + scrollOffsetPx
     if (yPx < 0f || yPx > gridHeightPx) return
     val backlogItem = backlogItems.firstOrNull { it.id == subprojectId } ?: return
-    val duration = backlogItem.estimatedDuration?.takeIf { it > 0 } ?: 30
+    // 优先使用面板里刚编辑过的预期时间（latestDurationById），拖拽路径即时同步；
+    // 回落到 estimatedDuration 兜底。
+    val duration = latestDurationById[subprojectId]
+        ?: backlogItem.estimatedDuration?.takeIf { it > 0 } ?: 30
     val slot = DropScheduleCalculator.slotFromDrop(yPx, rowHeightPx, grid, duration)
     onScheduleSubproject(subprojectId, slot.start, slot.end)
 }
@@ -725,15 +744,20 @@ private fun InlineBacklogPanel(
     item: BacklogItem,
     onScheduleClick: (Long) -> Unit,
     onUpdateSubproject: (id: Long, title: String, estimatedDuration: Int?) -> Unit,
+    // 把面板内最新编辑的预期时间同步到 overlay，供排期对话框即时使用（不依赖 VM 异步刷新时序）。
+    onDurationChange: (Int?) -> Unit = {},
+    onClose: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     var name by remember { mutableStateOf(item.title) }
     var duration by remember { mutableStateOf(item.estimatedDuration?.toString() ?: "") }
 
     // 名称 / 预期时间落定后持久化回写（本地状态保持输入响应）。
+    // 同步最新值到 overlay，让排期对话框即时拿到面板里编辑的预期时间。
     LaunchedEffect(name, duration) {
         val minutes = duration.toIntOrNull()
         onUpdateSubproject(item.id, name, minutes)
+        onDurationChange(minutes)
     }
 
     Surface(
@@ -744,11 +768,30 @@ private fun InlineBacklogPanel(
         shape = RoundedCornerShape(LocalZhixingRadii.current.md),
         color = MaterialTheme.colorScheme.surface,
         tonalElevation = LocalZhixingElevation.current.low,
+        // 柔和阴影让面板从透明背景中浮起，与背景区分。
+        shadowElevation = LocalZhixingElevation.current.medium,
     ) {
         Column(
             modifier = Modifier.padding(LocalZhixingSpacing.current.md),
-            verticalArrangement = Arrangement.spacedBy(LocalZhixingSpacing.current.sm),
+            verticalArrangement = Arrangement.spacedBy(LocalZhixingSpacing.current.md),
         ) {
+            // 标题行：图标 + 「编辑子项目」，传达面板用途。
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(LocalZhixingSpacing.current.sm),
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Edit,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(18.dp),
+                )
+                Text(
+                    text = "编辑子项目",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+            }
             OutlinedTextField(
                 value = name,
                 onValueChange = { name = it },
@@ -768,7 +811,17 @@ private fun InlineBacklogPanel(
                     .fillMaxWidth()
                     .testTag("BacklogPanelDuration-${item.id}"),
             )
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+            // 主次按钮分层：「取消」（文本）+「排期」（实心主按钮）。
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TextButton(
+                    onClick = { onClose() },
+                    modifier = Modifier.testTag("BacklogPanelCancel-${item.id}"),
+                ) { Text("取消") }
+                Spacer(modifier = Modifier.width(LocalZhixingSpacing.current.sm))
                 Button(
                     onClick = { onScheduleClick(item.id) },
                     modifier = Modifier.testTag("BacklogPanelSchedule-${item.id}"),

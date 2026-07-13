@@ -1,30 +1,46 @@
 package com.zhixing.ui
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DatePicker
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TimePicker
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 
 /**
@@ -114,8 +130,10 @@ fun ScheduleDateTimePickerDialog(
                         modifier = Modifier.testTag("ScheduleDateError"),
                     )
                 }
-                TimePicker(
-                    state = startState,
+                WheelTimePicker(
+                    hour = startState.hour,
+                    minute = startState.minute,
+                    onValueChange = { h, m -> startState.hour = h; startState.minute = m },
                     modifier = Modifier.fillMaxWidth().testTag("StartTimePicker"),
                 )
                 // 结束时间 = 开始 + 建议时长，自动回显，无需手动输入。
@@ -182,4 +200,158 @@ fun ScheduleTimePickerDialog(
  */
 fun isValidSchedule(startMinute: Int, endMinute: Int): Boolean {
     return endMinute > startMinute
+}
+
+/**
+ * 滚轮时间选择器（竖向，类似闹钟设置）。
+ *
+ * 时（0–23）/ 分（0–59）两列滚轮，每列 5 项可视，选中项居中高亮 + 上下细分割线；
+ * 随手势松手自动吸附最近项并通过 [onValueChange] 回写。外层容器持有 testTag "StartTimePicker"。
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun WheelTimePicker(
+    hour: Int,
+    minute: Int,
+    onValueChange: (hour: Int, minute: Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val currentHour by rememberUpdatedState(hour)
+    val currentMinute by rememberUpdatedState(minute)
+
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        WheelColumn(
+            range = 0..23,
+            selected = hour,
+            onSelected = { onValueChange(it, currentMinute) },
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            text = ":",
+            style = MaterialTheme.typography.titleLarge,
+            modifier = Modifier.padding(horizontal = 8.dp),
+        )
+        WheelColumn(
+            range = 0..59,
+            selected = minute,
+            onSelected = { onValueChange(currentHour, it) },
+            modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+/**
+ * 单列滚轮：[range] 中 [selected] 居中显示。
+ * 首尾各补 2 个空白项，让首项也能吸附到中心选中槽。
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun WheelColumn(
+    range: IntRange,
+    selected: Int,
+    onSelected: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val itemHeight = 40.dp
+    val visibleCount = 5
+    val halfPaddingCount = (visibleCount - 1) / 2 // 2
+    val list: List<Int> = List(halfPaddingCount) { 0 } + range.toList() + List(halfPaddingCount) { 0 }
+
+    val listState = rememberLazyListState()
+    val density = LocalDensity.current
+    val itemHeightPx = with(density) { itemHeight.toPx() }
+    val viewportHeightPx = itemHeightPx * visibleCount
+
+    // 外部 selected 变化 → 滚到对应位置
+    LaunchedEffect(selected) {
+        val targetIndex = halfPaddingCount + (selected - range.first)
+        listState.animateScrollToItem(targetIndex)
+    }
+
+    // 滚动停止时，取 viewport 中心最近项 → 吸附 + 回写
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.isScrollInProgress }
+            .collect { inProgress ->
+                if (!inProgress) {
+                    val layoutInfo = listState.layoutInfo
+                    val viewportCenter = layoutInfo.viewportStartOffset +
+                        (layoutInfo.viewportEndOffset - layoutInfo.viewportStartOffset) / 2
+                    val centerItem = layoutInfo.visibleItemsInfo.minByOrNull {
+                        kotlin.math.abs((it.offset + it.size / 2) - viewportCenter)
+                    }
+                    centerItem?.index?.let { idx ->
+                        val realValue = idx - halfPaddingCount + range.first
+                        if (realValue != selected && realValue in range) {
+                            val targetIndex = halfPaddingCount + (realValue - range.first)
+                            listState.animateScrollToItem(targetIndex)
+                            onSelected(realValue)
+                        }
+                    }
+                }
+            }
+    }
+
+    BoxWithConstraints(
+        modifier = modifier.height(itemHeight * visibleCount),
+    ) {
+        LazyColumn(
+            state = listState,
+            modifier = Modifier
+                .fillMaxSize()
+                .testTag("WheelList-${range.first}-${range.last}"),
+            contentPadding = PaddingValues(vertical = itemHeight * halfPaddingCount),
+            flingBehavior = rememberSnapFlingBehavior(lazyListState = listState),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            items(list.size) { index ->
+                val realValue = index - halfPaddingCount + range.first
+                val isSelected = realValue == selected
+                Box(
+                    modifier = Modifier
+                        .height(itemHeight)
+                        .fillMaxWidth(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (realValue in range) {
+                        Text(
+                            text = realValue.toString().padStart(2, '0'),
+                            style = if (isSelected) MaterialTheme.typography.titleMedium
+                            else MaterialTheme.typography.bodyLarge,
+                            color = if (isSelected) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                        )
+                    }
+                }
+            }
+        }
+
+        // 选中槽上下分割线（距 viewport 顶部：中心 ± itemHeight/2）
+        // 注意用 TopCenter 对齐，让 offset 从顶部算起；Center 对齐会让偏移相对中心叠加，
+        // 导致两条线被推到 Box 下方并 clipping 错位。
+        val centerYPx = viewportHeightPx / 2
+        val dividerWidth = maxWidth.times(0.8f)
+        val topDividerY = with(density) { (centerYPx - itemHeightPx / 2).toDp() }
+        val bottomDividerY = with(density) { (centerYPx + itemHeightPx / 2).toDp() }
+        HorizontalDivider(
+            modifier = Modifier
+                .width(dividerWidth)
+                .align(Alignment.TopCenter)
+                .offset(y = topDividerY),
+            thickness = 1.dp,
+            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f),
+        )
+        HorizontalDivider(
+            modifier = Modifier
+                .width(dividerWidth)
+                .align(Alignment.TopCenter)
+                .offset(y = bottomDividerY),
+            thickness = 1.dp,
+            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f),
+        )
+    }
 }
