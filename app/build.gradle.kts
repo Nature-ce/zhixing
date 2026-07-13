@@ -13,8 +13,8 @@ android {
         applicationId = "com.zhixing"
         minSdk = 29
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "0.2.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -23,6 +23,10 @@ android {
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            // 默认值留空：UI 输入框不预填假占位，与 debug 保持一致。
+            buildConfigField("String", "DECOMPOSE_BASE_URL", "\"\"")
+            buildConfigField("String", "DECOMPOSE_TOKEN", "\"\"")
+            buildConfigField("String", "DECOMPOSE_MODEL", "\"\"")
         }
 
         // 后端代理配置（ADR-0001：app 不直调大模型）；token 通过 local.properties 注入，不进版本库
