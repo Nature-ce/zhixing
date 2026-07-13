@@ -103,6 +103,8 @@ fun WeekSchedulePage(
     onCompleteSubproject: (subprojectId: Long) -> Unit = {},
     onAbandonSubproject: (subprojectId: Long) -> Unit = {},
     onUnscheduleSubproject: (subprojectId: Long) -> Unit = {},
+    // 已排项块长按拖拽到新日期/时段：日期 + 起止时间由落点决定，时长保持不变。
+    onRescheduleSubproject: (subprojectId: Long, date: String, startTime: Int, endTime: Int) -> Unit = { _, _, _, _ -> },
     // inline 面板编辑回写（名称 / 预期时间），由首页接 VM 持久化到数据库。
     onUpdateSubproject: (subprojectId: Long, title: String, estimatedDuration: Int?) -> Unit = { _, _, _ -> },
     // 折叠状态由首页 MainScreen 层级持有（与 isScheduleWeekView 同级），
@@ -136,6 +138,9 @@ fun WeekSchedulePage(
     var dragState by remember { mutableStateOf<DragState?>(null) }
     val backlogTops = remember { mutableStateMapOf<Long, Float>() }
     val backlogLefts = remember { mutableStateMapOf<Long, Float>() }
+    // 每个已排项块顶部在 root 中的像素（用于块拖拽时把局部坐标转为 root 坐标），key = 子项目 id。
+    val blockTops = remember { mutableStateMapOf<Long, Float>() }
+    val blockLefts = remember { mutableStateMapOf<Long, Float>() }
     // Backlog 区域顶部在 root 中的 y 像素。释放到 backlog 区域内（fingerRootY >= backlogTopPx）
     // 视为取消排期，避免依赖格栅坐标反算（gridTopPx 滚动后会过期，反算不可靠）。
     var backlogTopPx by remember { mutableStateOf(0f) }
@@ -150,6 +155,48 @@ fun WeekSchedulePage(
         menuTargetId = subprojectId
         showBlockMenu = true
     }
+
+    // 已排项块长按拖拽重排：记录块位置 + 拖拽手势回调（复用共享 dragState）。
+    val onBlockPositioned: (Long, Float, Float) -> Unit = { id, top, left ->
+        blockTops[id] = top
+        blockLefts[id] = left
+    }
+    val onBlockDragStart: (Long) -> Unit = { id ->
+        dragState = DragState(subprojectId = id, fingerRootY = 0f, fingerRootX = 0f)
+    }
+    val onBlockDrag: (androidx.compose.ui.input.pointer.PointerInputChange, Long) -> Unit = { change, id ->
+        val top = blockTops[id]
+        val left = blockLefts[id]
+        if (top != null && left != null) {
+            dragState = dragState?.copy(
+                fingerRootY = top + change.position.y,
+                fingerRootX = left + change.position.x,
+            )
+        }
+    }
+    val onBlockDragEnd: () -> Unit = {
+        val state = dragState
+        dragState = null
+        if (state != null) {
+            handleWeekBlockGridDrop(
+                subprojectId = state.subprojectId,
+                fingerRootX = state.fingerRootX,
+                fingerRootY = state.fingerRootY,
+                gridTopPx = gridTopPx,
+                gridContentLeftPx = gridContentLeftPx,
+                columnWidthPx = columnWidthPx,
+                horizontalScrollOffset = horizontalScrollState.value.toFloat(),
+                verticalScrollOffset = verticalScrollState.value.toFloat(),
+                gridHeightPx = gridHeightPx,
+                grid = grid,
+                rowHeightPx = rowHeightPx,
+                itemsByDate = itemsByDate,
+                weekDates = weekDates,
+                onRescheduleSubproject = onRescheduleSubproject,
+            )
+        }
+    }
+    val onBlockDragCancel: () -> Unit = { dragState = null }
 
     // backlog 子项目 inline 面板：当前展开的药丸 id（null = 无）。点击药丸 toggle 展开/收起。
     var expandedPillId by remember { mutableStateOf<Long?>(null) }
@@ -236,6 +283,11 @@ fun WeekSchedulePage(
                                 dayColumnWidth = dayColumnWidth,
                                 totalHeight = totalHeight,
                                 onBlockClick = onBlockClick,
+                                onBlockPositioned = onBlockPositioned,
+                                onDragStart = onBlockDragStart,
+                                onDrag = onBlockDrag,
+                                onDragEnd = onBlockDragEnd,
+                                onDragCancel = onBlockDragCancel,
                             )
                         }
                     }
@@ -352,10 +404,19 @@ fun WeekSchedulePage(
         // 拖拽视觉提示（drag overlay）
         val state = dragState
         if (state != null) {
-            val item = backlogItems.firstOrNull { it.id == state.subprojectId }
-            if (item != null && containerTopPx != 0f) {
+            // 优先匹配 backlog 药丸（子项目 id 即药丸 id）；未命中则匹配已排项块（按 subprojectId）。
+            val backlogItem = backlogItems.firstOrNull { it.id == state.subprojectId }
+            val blockItem = if (backlogItem == null) {
+                itemsByDate.values.firstOrNull { list ->
+                    list.any { it.subprojectId == state.subprojectId }
+                }?.firstOrNull { it.subprojectId == state.subprojectId }
+            } else null
+            val title = backlogItem?.title
+                ?: blockItem?.subprojectTitle
+                ?: state.subprojectId.toString()
+            if (containerTopPx != 0f) {
                 DragGlimpse(
-                    title = item.title,
+                    title = title,
                     offsetY = state.fingerRootY - containerTopPx,
                     offsetX = state.fingerRootX - containerLeftPx,
                 )
@@ -409,6 +470,11 @@ private fun WeekDayGridColumn(
     dayColumnWidth: androidx.compose.ui.unit.Dp,
     totalHeight: androidx.compose.ui.unit.Dp,
     onBlockClick: (Long) -> Unit = {},
+    onBlockPositioned: ((id: Long, top: Float, left: Float) -> Unit)? = null,
+    onDragStart: ((Long) -> Unit)? = null,
+    onDrag: ((change: androidx.compose.ui.input.pointer.PointerInputChange, id: Long) -> Unit)? = null,
+    onDragEnd: (() -> Unit)? = null,
+    onDragCancel: (() -> Unit)? = null,
 ) {
     Box(
         modifier = Modifier
@@ -439,10 +505,15 @@ private fun WeekDayGridColumn(
                 rowPadding = 2.dp,
                 tagPrefix = "WeekItem",
                 placeAnimationLabel = "weekBlockPlace",
+                onBlockPositioned = onBlockPositioned,
+                onDragStart = onDragStart,
+                onDrag = onDrag,
+                onDragEnd = onDragEnd,
+                onDragCancel = onDragCancel,
             )
         }
-        }
     }
+}
 
 /**
  * 周视图格栅落点处理：由手指 root 坐标 + 双向滚动偏移反算日期与时间段。
@@ -485,5 +556,42 @@ private fun handleWeekGridDrop(
         ?: backlogItem.estimatedDuration?.takeIf { it > 0 } ?: 30
     val slot = DropScheduleCalculator.slotFromDrop(yPx, rowHeightPx, grid, duration)
     onScheduleSubproject(subprojectId, date, slot.start, slot.end)
+}
+
+/**
+ * 周视图已排项块拖拽落点处理：把块拖到新日期/时段，时长保持不变（与原位无关）。
+ *
+ * 横向反算列索引 → 日期；纵向反算行 → 时间段；时长从被拽的 ScheduleItem 读取。
+ */
+private fun handleWeekBlockGridDrop(
+    subprojectId: Long,
+    fingerRootX: Float,
+    fingerRootY: Float,
+    gridTopPx: Float,
+    gridContentLeftPx: Float,
+    columnWidthPx: Float,
+    horizontalScrollOffset: Float,
+    verticalScrollOffset: Float,
+    gridHeightPx: Float,
+    grid: TimeGridLayout,
+    rowHeightPx: Float,
+    itemsByDate: Map<String, List<ScheduleItem>>,
+    weekDates: List<String>,
+    onRescheduleSubproject: (Long, String, Int, Int) -> Unit,
+) {
+    if (gridTopPx <= 0f || gridContentLeftPx <= 0f) return
+    val contentX = fingerRootX + horizontalScrollOffset
+    val colIndex = ((contentX - gridContentLeftPx) / columnWidthPx).toInt()
+    if (colIndex !in weekDates.indices) return
+    val date = weekDates[colIndex]
+    val yPx = fingerRootY - gridTopPx + verticalScrollOffset
+    if (yPx < 0f || yPx > gridHeightPx) return
+    // 在任意天的列表中按 subprojectId 找被拽的块，读出原时长。
+    val item = itemsByDate.values.firstOrNull { list ->
+        list.any { it.subprojectId == subprojectId }
+    }?.firstOrNull { it.subprojectId == subprojectId } ?: return
+    val duration = (item.endTime - item.startTime).coerceAtLeast(30)
+    val slot = DropScheduleCalculator.slotFromDrop(yPx, rowHeightPx, grid, duration)
+    onRescheduleSubproject(subprojectId, date, slot.start, slot.end)
 }
 

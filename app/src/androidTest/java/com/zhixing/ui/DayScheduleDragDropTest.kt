@@ -350,6 +350,114 @@ class DayScheduleDragDropTest {
         assertThat(result.third).isEqualTo(600)
     }
 
+    /**
+     * 已排期块长按拖拽到格栅新时段 → onRescheduleSubproject 被调用，
+     * 新 startTime/endTime 由落点决定，时长保持不变（核心路径）。
+     *
+     * 块 09:00-10:00（时长 60）拖到第 10 行（11:00=660）→ 新时段 11:00-12:00（660-720）。
+     */
+    @Test
+    fun longPressDrag_blockToNewTimeSlot_reschedulesPreservingDuration() {
+        val captured = AtomicReference<Triple<Long, Int, Int>?>(null)
+
+        composeRule.setContent {
+            ZhixingTheme {
+                DaySchedulePage(
+                    date = "2026-07-09",
+                    scheduleItems = listOf(
+                        ScheduleItem(
+                            id = 100,
+                            subprojectId = 10,
+                            subprojectTitle = "写论文",
+                            startTime = 540,   // 09:00
+                            endTime = 600,     // 10:00, 时长 60
+                        ),
+                    ),
+                    backlogItems = emptyList(),
+                    onRescheduleSubproject = { id, start, end ->
+                        captured.set(Triple(id, start, end))
+                    },
+                )
+            }
+        }
+
+        composeRule.waitForIdle()
+
+        // 格栅第 10 行 = 11:00 = 660。计算目标在 root 中的 y。
+        val gridNode = composeRule.onNodeWithTag("ScheduleDropTarget", useUnmergedTree = true)
+            .fetchSemanticsNode()
+        val gridTop = gridNode.boundsInRoot.top
+        val rowHeightPx = gridNode.size.height / 34f
+        val targetRootY = gridTop + 10 * rowHeightPx
+
+        // 块节点顶部在 root 中的 y（用于把 root 目标 y 转成块本地坐标）
+        val blockNode = composeRule.onNodeWithTag("ScheduleBlock-100", useUnmergedTree = true)
+            .fetchSemanticsNode()
+        val blockRootTop = blockNode.boundsInRoot.top
+        val localTargetY = targetRootY - blockRootTop
+
+        composeRule.onNodeWithTag("ScheduleBlock-100", useUnmergedTree = true).performTouchInput {
+            down(center)
+            moveTo(Offset(center.x, localTargetY), delayMillis = 800L)
+            up()
+        }
+
+        composeRule.waitForIdle()
+
+        val result = captured.get()
+        assertThat(result).isNotNull
+        assertThat(result!!.first).isEqualTo(10L)
+        // 落在第 10 行 → 11:00 = 660，时长 60 → end = 720
+        assertThat(result.second).isEqualTo(660)
+        assertThat(result.third).isEqualTo(720)
+    }
+
+    /**
+     * 已排项块拖到格栅外（向上越过格栅顶部 → yPx < 0）→ 不触发 onRescheduleSubproject，
+     * 块保持原位（越界 = 无变化）。
+     */
+    @Test
+    fun dragBlock_outsideGrid_doesNotReschedule() {
+        val captured = AtomicReference<Triple<Long, Int, Int>?>(null)
+
+        composeRule.setContent {
+            ZhixingTheme {
+                DaySchedulePage(
+                    date = "2026-07-09",
+                    scheduleItems = listOf(
+                        ScheduleItem(
+                            id = 100,
+                            subprojectId = 10,
+                            subprojectTitle = "写论文",
+                            startTime = 540,   // 09:00
+                            endTime = 600,     // 10:00
+                        ),
+                    ),
+                    backlogItems = emptyList(),
+                    onRescheduleSubproject = { id, start, end ->
+                        captured.set(Triple(id, start, end))
+                    },
+                )
+            }
+        }
+
+        composeRule.waitForIdle()
+
+        // 目标：块本地坐标中一个很大的负 y（手指移到块顶部很远的上方 → 越过格栅顶部 → yPx < 0）。
+        val localTargetY = -2000f
+
+        composeRule.onNodeWithTag("ScheduleBlock-100", useUnmergedTree = true).performTouchInput {
+            down(center)
+            moveTo(Offset(center.x, localTargetY), delayMillis = 800L)
+            up()
+        }
+
+        composeRule.waitForIdle()
+
+        // 越界释放 → 不触发重排
+        assertThat(captured.get()).isNull()
+    }
+
     @Test
     fun dragBackToBacklog_cancelsSchedule() {
         // 拖向格栅后再拖回 backlog 区域释放 → 不应排期。

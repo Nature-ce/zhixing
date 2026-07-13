@@ -200,6 +200,9 @@ private fun ScheduleTab(
                 onUnscheduleSubproject = { subprojectId ->
                     scope.launch { weekVm.unscheduleSubproject(subprojectId) }
                 },
+                onRescheduleSubproject = { subprojectId, date, startTime, endTime ->
+                    scope.launch { weekVm.rescheduleSubproject(subprojectId, date, startTime, endTime) }
+                },
                 onUpdateSubproject = { subprojectId, title, estimatedDuration ->
                     scope.launch { weekVm.updateSubproject(subprojectId, title, estimatedDuration) }
                 },
@@ -235,6 +238,9 @@ private fun ScheduleTab(
                 },
                 onUnscheduleSubproject = { subprojectId ->
                     scope.launch { vm.unscheduleSubproject(subprojectId) }
+                },
+                onRescheduleSubproject = { subprojectId, startTime, endTime ->
+                    scope.launch { vm.rescheduleSubproject(subprojectId, today(), startTime, endTime) }
                 },
                 onUpdateSubproject = { subprojectId, title, estimatedDuration ->
                     scope.launch { vm.updateSubproject(subprojectId, title, estimatedDuration) }

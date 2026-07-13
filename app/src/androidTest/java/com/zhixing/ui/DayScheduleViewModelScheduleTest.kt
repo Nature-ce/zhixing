@@ -338,4 +338,79 @@ class DayScheduleViewModelScheduleTest {
         val taskAfterSecond = runBlocking { taskDao.getTaskById(taskId) }
         assertThat(taskAfterSecond!!.status).isEqualTo("已完成")
     }
+
+    @Test
+    fun reschedule_subproject_moves_to_new_time_preserving_duration() {
+        // 已排项块拖拽重排：清除原排期行 + 插入新行，时长保持不变。
+        runBlocking {
+            val taskId = taskDao.insertTask(TaskEntity(title = "读书笔记", createdAt = 1_000L))
+            val sub = subprojectDao.insertSubproject(
+                SubprojectEntity(taskId = taskId, title = "选书目", status = "已排期", createdAt = 2_000L)
+            )
+            // 原排期 09:00-10:00（时长 60）
+            scheduleDao.insertScheduleItem(
+                com.zhixing.data.entity.ScheduleEntity(subprojectId = sub, date = "2026-07-09", startTime = 540, endTime = 600, createdAt = 4_000L)
+            )
+
+            val vm = DayScheduleViewModel(
+                date = "2026-07-09",
+                taskDao = taskDao,
+                scheduleDao = scheduleDao,
+                subprojectDao = subprojectDao,
+                currentTimeProvider = { 0 },
+            )
+
+            // 拖到 11:00-12:00（时长仍为 60）
+            val result = vm.rescheduleSubproject(sub, "2026-07-09", 660, 720)
+
+            assertThat(result).isEqualTo(true)
+            // 子项目状态保持"已排期"
+            assertThat(subprojectDao.getAllSubprojects().first().first { it.id == sub }.status).isEqualTo("已排期")
+            // schedule_items 仍只有一行，且为新时段
+            val items = scheduleDao.getScheduleItemsByDate("2026-07-09").first()
+            assertThat(items).hasSize(1)
+            assertThat(items[0].startTime).isEqualTo(660)
+            assertThat(items[0].endTime).isEqualTo(720)
+        }
+    }
+
+    @Test
+    fun reschedule_rejects_when_same_task_time_conflicts() {
+        // 拖到同任务已占时段 → 冲突，拒绝（返回 false，原排期不变）。
+        runBlocking {
+            val taskId = taskDao.insertTask(TaskEntity(title = "读书笔记", createdAt = 1_000L))
+            val sub1 = subprojectDao.insertSubproject(
+                SubprojectEntity(taskId = taskId, title = "选书目", status = "已排期", createdAt = 2_000L)
+            )
+            val sub2 = subprojectDao.insertSubproject(
+                SubprojectEntity(taskId = taskId, title = "划重点", status = "已排期", createdAt = 3_000L)
+            )
+            // sub1 已排 09:00-10:00，sub2 已排 11:00-12:00
+            scheduleDao.insertScheduleItem(
+                com.zhixing.data.entity.ScheduleEntity(subprojectId = sub1, date = "2026-07-09", startTime = 540, endTime = 600, createdAt = 4_000L)
+            )
+            scheduleDao.insertScheduleItem(
+                com.zhixing.data.entity.ScheduleEntity(subprojectId = sub2, date = "2026-07-09", startTime = 660, endTime = 720, createdAt = 5_000L)
+            )
+
+            val vm = DayScheduleViewModel(
+                date = "2026-07-09",
+                taskDao = taskDao,
+                scheduleDao = scheduleDao,
+                subprojectDao = subprojectDao,
+                currentTimeProvider = { 0 },
+            )
+
+            // sub2 拖到 09:00-10:00 → 与 sub1 冲突，应拒绝
+            val result = vm.rescheduleSubproject(sub2, "2026-07-09", 540, 600)
+
+            assertThat(result).isEqualTo(false)
+            // sub2 原排期不变
+            val items = scheduleDao.getScheduleItemsByDate("2026-07-09").first()
+            assertThat(items).hasSize(2)
+            val sub2Item = items.first { it.subprojectId == sub2 }
+            assertThat(sub2Item.startTime).isEqualTo(660)
+            assertThat(sub2Item.endTime).isEqualTo(720)
+        }
+    }
 }

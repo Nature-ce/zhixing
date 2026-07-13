@@ -64,6 +64,50 @@ abstract class ScheduleViewModel(
     }
 
     /**
+     * 重排已排项块：把子项目改到同天的新时段（时长由调用方保留）。
+     *
+     * 仅当目标时段与同任务其他子项目无冲突时才执行：清除原排期行 + 插入新排期行，
+     * 子项目状态保持"已排期"不变。冲突则拒绝（返回 false，保持原位）。
+     *
+     * @return 是否成功重排
+     */
+    open suspend fun rescheduleSubproject(
+        subprojectId: Long,
+        date: String,
+        startTime: Int,
+        endTime: Int,
+    ): Boolean {
+        val current = subprojectDao.getAllSubprojects().first().firstOrNull { it.id == subprojectId }
+            ?: return false
+        // 仅允许重排已排期的子项目（与 unschedule 共享前置）。
+        if (current.status != "已排期") return false
+        val existing = scheduleDao.getScheduleItemsByDate(date).first()
+        // 冲突检测排除自身原有行（ScheduleConflictDetector 已按 subprojectId 排除）。
+        if (ScheduleConflictDetector.hasConflict(
+                subprojectId = subprojectId,
+                date = date,
+                startTime = startTime,
+                endTime = endTime,
+                existingSchedules = existing,
+                subprojects = subprojectDao.getAllSubprojects().first(),
+            )
+        ) {
+            return false
+        }
+        scheduleDao.clearScheduleForSubproject(subprojectId)
+        scheduleDao.insertScheduleItem(
+            ScheduleEntity(
+                subprojectId = subprojectId,
+                date = date,
+                startTime = startTime,
+                endTime = endTime,
+                createdAt = System.currentTimeMillis(),
+            ),
+        )
+        return true
+    }
+
+    /**
      * 标记子项目"已完成"。先验证存在性与流转合法性，再写状态 + 完成时间戳；
      * 若该任务的所有子项目都进入终态，任务自动变"已完成"。
      */

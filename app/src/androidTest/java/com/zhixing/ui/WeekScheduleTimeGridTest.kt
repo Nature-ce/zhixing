@@ -325,6 +325,72 @@ class WeekScheduleTimeGridTest {
         assertThat(updatedArgs?.second).isEqualTo("看第九章")
     }
 
+    /**
+     * 周视图已排项块长按拖拽跨天重排：从 2026-07-06 09:00-10:00 拖到 2026-07-08 11:00，
+     * onRescheduleSubproject 被调用，日期+时间变化，时长保持 60 分钟（11:00-12:00 = 660-720）。
+     */
+    @Test
+    fun longPressDrag_weekBlock_crossDay_reschedulesToDateAndTime() {
+        var rescheduledArgs: Quadruple<Long, String, Int, Int>? = null
+
+        val itemsByDate = mapOf(
+            "2026-07-06" to listOf(
+                ScheduleItem(
+                    id = 100, subprojectId = 10, subprojectTitle = "写论文",
+                    startTime = 540, endTime = 600, subprojectStatus = "已排期",
+                ),
+            ),
+        )
+
+        composeRule.setContent {
+            ZhixingTheme {
+                WeekSchedulePage(
+                    weekDates = weekDates,
+                    itemsByDate = itemsByDate,
+                    onRescheduleSubproject = { id, date, start, end ->
+                        rescheduledArgs = Quadruple(id, date, start, end)
+                    },
+                )
+            }
+        }
+
+        composeRule.waitForIdle()
+
+        // 第 0 列（2026-07-06）的几何：left/top/width/height 作为落点反算基准。
+        val col0 = composeRule.onNodeWithTag("WeekDay-2026-07-06", useUnmergedTree = true)
+            .fetchSemanticsNode()
+        val gridContentLeftPx = col0.boundsInRoot.left
+        val gridTopPx = col0.boundsInRoot.top
+        val columnWidthPx = col0.size.width.toFloat()
+        val rowHeightPx = col0.size.height.toFloat() / 34f
+
+        // 目标：第 2 列（2026-07-08）中心、第 10 行（11:00 = 660）顶部。
+        val targetFingerRootX = gridContentLeftPx + 2.5f * columnWidthPx
+        val targetFingerRootY = gridTopPx + 10f * rowHeightPx
+
+        // 块节点当前 root 坐标 → 把 root 目标转成块本地坐标（performTouchInput 用本地坐标）。
+        val block = composeRule.onNodeWithTag("WeekItem-100", useUnmergedTree = true)
+            .fetchSemanticsNode()
+        val blockLeft = block.boundsInRoot.left
+        val blockTop = block.boundsInRoot.top
+        val localTargetX = targetFingerRootX - blockLeft
+        val localTargetY = targetFingerRootY - blockTop
+
+        composeRule.onNodeWithTag("WeekItem-100", useUnmergedTree = true).performTouchInput {
+            down(center)
+            moveTo(Offset(localTargetX, localTargetY), delayMillis = 800L)
+            up()
+        }
+
+        composeRule.waitUntil(timeoutMillis = 5_000) { rescheduledArgs != null }
+
+        assertThat(rescheduledArgs?.first).isEqualTo(10L)
+        assertThat(rescheduledArgs?.second).isEqualTo("2026-07-08")
+        // 落在第 10 行 → 11:00 = 660，时长 60 → end = 720
+        assertThat(rescheduledArgs?.third).isEqualTo(660)
+        assertThat(rescheduledArgs?.fourth).isEqualTo(720)
+    }
+
     @Test
     fun click_blank_area_outside_week_panel_collapses_it() {
         // 新行为（周视图）：面板以屏幕中央弹窗形式出现，点击面板外的空白遮罩 → 面板收起。

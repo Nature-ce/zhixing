@@ -65,6 +65,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.SemanticsPropertyReceiver
 import androidx.compose.ui.semantics.semantics
@@ -419,6 +420,12 @@ internal fun ScheduleBlock(
     rowPadding: Dp,
     tagPrefix: String,
     placeAnimationLabel: String,
+    // 长按拖拽重排：定位回调 + 拖拽手势回调（仅日视图已排项块使用，默认 null = 不可拖）。
+    onBlockPositioned: ((id: Long, top: Float, left: Float) -> Unit)? = null,
+    onDragStart: ((Long) -> Unit)? = null,
+    onDrag: ((change: PointerInputChange, id: Long) -> Unit)? = null,
+    onDragEnd: (() -> Unit)? = null,
+    onDragCancel: (() -> Unit)? = null,
 ) {
     val dimmed = item.subprojectStatus in setOf("已完成", "已放弃") || item.isOverdue
     val textColor = if (dimmed) {
@@ -446,6 +453,25 @@ internal fun ScheduleBlock(
             .fillMaxWidth()
             .padding(vertical = 1.dp, horizontal = horizontalPadding)
             .then(if (onClick != null) Modifier.clickable { onClick(item.subprojectId) } else Modifier)
+            .then(
+                if (onBlockPositioned != null) {
+                    Modifier.onGloballyPositioned {
+                        onBlockPositioned(item.subprojectId, it.boundsInRoot().top, it.boundsInRoot().left)
+                    }
+                } else Modifier,
+            )
+            .then(
+                if (onDragStart != null) {
+                    Modifier.pointerInput(item.subprojectId) {
+                        detectDragGesturesAfterLongPress(
+                            onDragStart = { onDragStart(item.subprojectId) },
+                            onDrag = { change, _ -> onDrag?.invoke(change, item.subprojectId) },
+                            onDragEnd = { onDragEnd?.invoke() },
+                            onDragCancel = { onDragCancel?.invoke() },
+                        )
+                    }
+                } else Modifier,
+            )
             .testTag("$tagPrefix-${item.id}")
             .semantics { this.dimmed = dimmed },
     ) {

@@ -110,6 +110,8 @@ fun DaySchedulePage(
     onCompleteSubproject: (subprojectId: Long) -> Unit = {},
     onAbandonSubproject: (subprojectId: Long) -> Unit = {},
     onUnscheduleSubproject: (subprojectId: Long) -> Unit = {},
+    // 已排项块长按拖拽到新时段：新 startTime/endTime 由落点决定，时长保持不变。
+    onRescheduleSubproject: (subprojectId: Long, startTime: Int, endTime: Int) -> Unit = { _, _, _ -> },
     // inline 面板编辑回写（名称 / 预期时间），由首页接 VM 持久化到数据库。
     onUpdateSubproject: (subprojectId: Long, title: String, estimatedDuration: Int?) -> Unit = { _, _, _ -> },
     // 折叠状态由首页 MainScreen 层级持有（与 isScheduleWeekView 同级），
@@ -139,6 +141,9 @@ fun DaySchedulePage(
     // 每个 backlog 药丸顶部在 root 中的像素（用于把手势局部坐标转为 root 坐标）。
     val backlogTops = remember { mutableStateMapOf<Long, Float>() }
     val backlogLefts = remember { mutableStateMapOf<Long, Float>() }
+    // 每个已排项块顶部在 root 中的像素（用于块拖拽时把局部坐标转为 root 坐标），key = 块 id（ScheduleItem.id）。
+    val blockTops = remember { mutableStateMapOf<Long, Float>() }
+    val blockLefts = remember { mutableStateMapOf<Long, Float>() }
     // Backlog 区域顶部在 root 中的 y 像素。释放到 backlog 区域内（fingerRootY >= backlogTopPx）
     // 视为取消排期，避免依赖格栅坐标反算（gridTopPx 滚动后会过期，反算不可靠）。
     var backlogTopPx by remember { mutableStateOf(0f) }
@@ -245,6 +250,46 @@ fun DaySchedulePage(
                                 rowPadding = LocalZhixingSpacing.current.xs,
                                 tagPrefix = "ScheduleBlock",
                                 placeAnimationLabel = "blockPlace",
+                                // 已排项块长按拖拽重排：记录块位置 + 拖拽手势回调。
+                                onBlockPositioned = { id, top, left ->
+                                    blockTops[id] = top
+                                    blockLefts[id] = left
+                                },
+                                onDragStart = { id ->
+                                    dragState = DragState(
+                                        subprojectId = id,
+                                        fingerRootY = 0f,
+                                        fingerRootX = 0f,
+                                    )
+                                },
+                                onDrag = { change, id ->
+                                    val top = blockTops[id]
+                                    val left = blockLefts[id]
+                                    if (top != null && left != null) {
+                                        dragState = dragState?.copy(
+                                            fingerRootY = top + change.position.y,
+                                            fingerRootX = left + change.position.x,
+                                        )
+                                    }
+                                },
+                                onDragEnd = {
+                                    val state = dragState
+                                    dragState = null
+                                    if (state != null) {
+                                        handleBlockGridDrop(
+                                            subprojectId = state.subprojectId,
+                                            fingerRootY = state.fingerRootY,
+                                            gridTopPx = gridTopPx,
+                                            scrollOffsetPx = scrollState.value.toFloat(),
+                                            gridHeightPx = gridHeightPx,
+                                            grid = grid,
+                                            rowHeightPx = rowHeightPx,
+                                            scheduleItems = scheduleItems,
+                                            onRescheduleSubproject = onRescheduleSubproject,
+                                        )
+                                    }
+                                },
+                                onDragCancel = { dragState = null },
                             )
                         }
                     }
@@ -356,12 +401,15 @@ fun DaySchedulePage(
         }
 
         // 拖拽视觉提示（drag overlay）：跟手移动的卡片，仅在拖拽进行中显示。
+        // 拖源可能是 backlog 药丸（按 id 匹配）或已排项块（按 subprojectId 匹配）。
         val dragStateForOverlay = dragState
-        if (dragStateForOverlay != null) {
-            val item = backlogItems.firstOrNull { it.id == dragStateForOverlay.subprojectId }
-            if (item != null && containerTopPx != 0f) {
+        if (dragStateForOverlay != null && containerTopPx != 0f) {
+            val draggedTitle = backlogItems.firstOrNull { it.id == dragStateForOverlay.subprojectId }?.title
+                ?: scheduleItems.firstOrNull { it.subprojectId == dragStateForOverlay.subprojectId }
+                    ?.subprojectTitle
+            if (draggedTitle != null) {
                 DragGlimpse(
-                    title = item.title,
+                    title = draggedTitle,
                     // 把手指 root 像素转为本容器本地坐标
                     offsetY = dragStateForOverlay.fingerRootY - containerTopPx,
                     offsetX = dragStateForOverlay.fingerRootX - containerLeftPx,
@@ -445,6 +493,32 @@ private fun handleGridDrop(
         ?: backlogItem.estimatedDuration?.takeIf { it > 0 } ?: 30
     val slot = DropScheduleCalculator.slotFromDrop(yPx, rowHeightPx, grid, duration)
     onScheduleSubproject(subprojectId, slot.start, slot.end)
+}
+
+/**
+ * 已排项块拖拽重排：由手指 root 坐标反算格栅落点，时长取自该块原有时长（endTime-startTime），
+ * 回调 onRescheduleSubproject。
+ *
+ * 手指在格栅区域外（上方 / 下方 / 格栅未布局 / 找不到原块）时不做任何事（越界 = 无变化）。
+ */
+private fun handleBlockGridDrop(
+    subprojectId: Long,
+    fingerRootY: Float,
+    gridTopPx: Float,
+    scrollOffsetPx: Float,
+    gridHeightPx: Float,
+    grid: TimeGridLayout,
+    rowHeightPx: Float,
+    scheduleItems: List<ScheduleItem>,
+    onRescheduleSubproject: (Long, Int, Int) -> Unit,
+) {
+    if (gridTopPx <= 0f) return
+    val yPx = fingerRootY - gridTopPx + scrollOffsetPx
+    if (yPx < 0f || yPx > gridHeightPx) return
+    val item = scheduleItems.firstOrNull { it.subprojectId == subprojectId } ?: return
+    val duration = (item.endTime - item.startTime).coerceAtLeast(30)
+    val slot = DropScheduleCalculator.slotFromDrop(yPx, rowHeightPx, grid, duration)
+    onRescheduleSubproject(subprojectId, slot.start, slot.end)
 }
 
 /**
