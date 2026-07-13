@@ -12,6 +12,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -80,6 +81,8 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.zhixing.data.DropScheduleCalculator
+import com.zhixing.data.ScheduleConflictDetector
+import com.zhixing.data.ScheduleSlot
 import com.zhixing.ui.theme.LocalZhixingElevation
 import com.zhixing.ui.theme.LocalZhixingRadii
 import com.zhixing.ui.theme.LocalZhixingSpacing
@@ -164,6 +167,35 @@ fun DaySchedulePage(
     // 面板每次编辑经 onDurationChange 同步到这里；不随 overlay 销毁，
     // 供排期对话框与拖拽路径即时使用（不依赖 VM 异步刷新时序）。
     val latestDurationById = remember { mutableStateMapOf<Long, Int>() }
+
+    // 拖拽预览层：由 dragState（手指像素）实时派生的目标时间段。
+    // 复用 handleBlockGridDrop 完全相同的公式，保证"所见即所得"。
+    val previewSlot: ScheduleSlot? = remember(dragState, gridTopPx, scrollState.value) {
+        val state = dragState ?: return@remember null
+        if (gridTopPx <= 0f) return@remember null
+        val yPx = state.fingerRootY - gridTopPx + scrollState.value.toFloat()
+        if (yPx < 0f || yPx > gridHeightPx) return@remember null
+        val item = scheduleItems.firstOrNull { it.subprojectId == state.subprojectId }
+        val duration = item?.let { it.endTime - it.startTime }
+            ?: latestDurationById[state.subprojectId]
+            ?: backlogItems.firstOrNull { it.id == state.subprojectId }?.estimatedDuration
+            ?: 30
+        DropScheduleCalculator.slotFromDrop(yPx, rowHeightPx, grid, duration)
+    }
+    // 预览冲突判断：被拖块与同任务已排项是否时间重叠（半开区间）。
+    val previewConflict: Boolean = previewSlot?.let { slot ->
+        val state = dragState ?: return@let false
+        val taskId = scheduleItems.firstOrNull { it.subprojectId == state.subprojectId }?.taskId
+            ?: backlogItems.firstOrNull { it.id == state.subprojectId }?.taskId
+            ?: 0L
+        ScheduleConflictDetector.hasConflict(
+            subprojectId = state.subprojectId,
+            taskId = taskId,
+            startTime = slot.start,
+            endTime = slot.end,
+            existing = scheduleItems,
+        )
+    } ?: false
 
     // 用 Box 包裹内容 + glimpse overlay。overlay 在同一个坐标容器内，
     // 从而用 fingerRootY - containerTopPx 就能把 glimpse 定位到手指位置。
@@ -290,6 +322,18 @@ fun DaySchedulePage(
                                     }
                                 },
                                 onDragCancel = { dragState = null },
+                            )
+                        }
+
+                        // 拖拽预览幽灵块：覆在目标时间格上，半透明显示落点与时长；
+                        // 冲突态变红（colorScheme.error），可视化拒绝原因。
+                        if (previewSlot != null) {
+                            DragGhost(
+                                yPx = grid.yPositionFor(previewSlot.start, rowHeight.value),
+                                hPx = grid.heightFor(previewSlot.start, previewSlot.end, rowHeight.value),
+                                startTime = previewSlot.start,
+                                endTime = previewSlot.end,
+                                isConflict = previewConflict,
                             )
                         }
                     }
@@ -516,7 +560,7 @@ private fun handleBlockGridDrop(
     val yPx = fingerRootY - gridTopPx + scrollOffsetPx
     if (yPx < 0f || yPx > gridHeightPx) return
     val item = scheduleItems.firstOrNull { it.subprojectId == subprojectId } ?: return
-    val duration = (item.endTime - item.startTime).coerceAtLeast(30)
+    val duration = item.endTime - item.startTime
     val slot = DropScheduleCalculator.slotFromDrop(yPx, rowHeightPx, grid, duration)
     onRescheduleSubproject(subprojectId, slot.start, slot.end)
 }

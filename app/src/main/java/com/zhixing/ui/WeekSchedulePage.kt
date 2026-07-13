@@ -11,6 +11,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -77,6 +78,8 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.zhixing.data.DropScheduleCalculator
+import com.zhixing.data.ScheduleConflictDetector
+import com.zhixing.data.ScheduleSlot
 import com.zhixing.ui.theme.LocalZhixingElevation
 import com.zhixing.ui.theme.LocalZhixingRadii
 import com.zhixing.ui.theme.LocalZhixingSpacing
@@ -206,6 +209,40 @@ fun WeekSchedulePage(
     // 面板内最新编辑的预期时间（分钟）：按子项目 id 持有，供排期对话框和拖拽路径即时使用。
     val latestDurationById = remember { mutableStateMapOf<Long, Int>() }
 
+    // 拖拽预览层：由 dragState（手指像素）实时派生的目标日期 + 时间段 + 冲突态。
+    // 复用 handleWeekBlockGridDrop 完全相同的公式（列索引法 + 落点反算），保证"所见即所得"。
+    val allWeekItems = remember(itemsByDate) { itemsByDate.values.flatten() }
+    val previewTarget: SlotPreview = remember(dragState, gridTopPx, gridContentLeftPx,
+        horizontalScrollState.value, verticalScrollState.value, itemsByDate) {
+        val state = dragState
+        if (state == null || gridTopPx <= 0f || gridContentLeftPx <= 0f) {
+            return@remember SlotPreview.EMPTY
+        }
+        val contentX = state.fingerRootX + horizontalScrollState.value.toFloat()
+        val colIndex = ((contentX - gridContentLeftPx) / columnWidthPx).toInt()
+        if (colIndex !in weekDates.indices) return@remember SlotPreview.EMPTY
+        val date = weekDates[colIndex]
+        val yPx = state.fingerRootY - gridTopPx + verticalScrollState.value.toFloat()
+        if (yPx < 0f || yPx > gridHeightPx) return@remember SlotPreview.EMPTY
+        val item = allWeekItems.firstOrNull { it.subprojectId == state.subprojectId }
+        val duration = item?.let { it.endTime - it.startTime }
+            ?: latestDurationById[state.subprojectId]
+            ?: backlogItems.firstOrNull { it.id == state.subprojectId }?.estimatedDuration
+            ?: 30
+        val slot = DropScheduleCalculator.slotFromDrop(yPx, rowHeightPx, grid, duration)
+        val taskId = item?.taskId
+            ?: backlogItems.firstOrNull { it.id == state.subprojectId }?.taskId
+            ?: 0L
+        val isConflict = ScheduleConflictDetector.hasConflict(
+            subprojectId = state.subprojectId,
+            taskId = taskId,
+            startTime = slot.start,
+            endTime = slot.end,
+            existing = itemsByDate[date] ?: emptyList(),
+        )
+        SlotPreview(date = date, slot = slot, isConflict = isConflict)
+    }
+
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -288,6 +325,7 @@ fun WeekSchedulePage(
                                 onDrag = onBlockDrag,
                                 onDragEnd = onBlockDragEnd,
                                 onDragCancel = onBlockDragCancel,
+                                preview = previewTarget,
                             )
                         }
                     }
@@ -475,7 +513,10 @@ private fun WeekDayGridColumn(
     onDrag: ((change: androidx.compose.ui.input.pointer.PointerInputChange, id: Long) -> Unit)? = null,
     onDragEnd: (() -> Unit)? = null,
     onDragCancel: (() -> Unit)? = null,
+    // 拖拽预览：仅目标日期列（date == preview.date）渲染幽灵块。
+    preview: SlotPreview = SlotPreview.EMPTY,
 ) {
+    val isPreviewColumn = preview.slot.start != preview.slot.end && date == preview.date
     Box(
         modifier = Modifier
             .width(dayColumnWidth)
@@ -510,6 +551,17 @@ private fun WeekDayGridColumn(
                 onDrag = onDrag,
                 onDragEnd = onDragEnd,
                 onDragCancel = onDragCancel,
+            )
+        }
+
+        // 拖拽预览幽灵块：仅目标日期列渲染，覆在目标时间格上显示落点与时长。
+        if (isPreviewColumn) {
+            DragGhost(
+                yPx = grid.yPositionFor(preview.slot.start, rowHeight.value),
+                hPx = grid.heightFor(preview.slot.start, preview.slot.end, rowHeight.value),
+                startTime = preview.slot.start,
+                endTime = preview.slot.end,
+                isConflict = preview.isConflict,
             )
         }
     }
@@ -590,8 +642,19 @@ private fun handleWeekBlockGridDrop(
     val item = itemsByDate.values.firstOrNull { list ->
         list.any { it.subprojectId == subprojectId }
     }?.firstOrNull { it.subprojectId == subprojectId } ?: return
-    val duration = (item.endTime - item.startTime).coerceAtLeast(30)
+    val duration = item.endTime - item.startTime
     val slot = DropScheduleCalculator.slotFromDrop(yPx, rowHeightPx, grid, duration)
     onRescheduleSubproject(subprojectId, date, slot.start, slot.end)
+}
+
+/** 周视图拖拽预览目标：命中日期 + 时间段 + 是否冲突。 */
+private data class SlotPreview(
+    val date: String,
+    val slot: ScheduleSlot,
+    val isConflict: Boolean,
+) {
+    companion object {
+        val EMPTY = SlotPreview(date = "", slot = ScheduleSlot(0, 0), isConflict = false)
+    }
 }
 

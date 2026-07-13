@@ -20,6 +20,7 @@ import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -410,6 +411,201 @@ class DayScheduleDragDropTest {
         // 落在第 10 行 → 11:00 = 660，时长 60 → end = 720
         assertThat(result.second).isEqualTo(660)
         assertThat(result.third).isEqualTo(720)
+    }
+
+    /**
+     * 回归：15 分钟块拖拽重排时应保持 15 分钟，不能被 coerceAtLeast(30) 扩到 30。
+     * 块 09:00-09:15（时长 15）拖到第 10 行（11:00=660）→ 新时段 11:00-11:15（660-675）。
+     *
+     * 旧实现 (endTime-startTime).coerceAtLeast(30) 会把 15 抬到 30 → 660-690（Bug）。
+     */
+    @Test
+    fun longPressDrag_15minBlock_preserves15minDuration() {
+        val captured = AtomicReference<Triple<Long, Int, Int>?>(null)
+
+        composeRule.setContent {
+            ZhixingTheme {
+                DaySchedulePage(
+                    date = "2026-07-09",
+                    scheduleItems = listOf(
+                        ScheduleItem(
+                            id = 100,
+                            subprojectId = 10,
+                            subprojectTitle = "写论文",
+                            startTime = 540,   // 09:00
+                            endTime = 555,     // 09:15, 时长 15
+                        ),
+                    ),
+                    backlogItems = emptyList(),
+                    onRescheduleSubproject = { id, start, end ->
+                        captured.set(Triple(id, start, end))
+                    },
+                )
+            }
+        }
+
+        composeRule.waitForIdle()
+
+        val gridNode = composeRule.onNodeWithTag("ScheduleDropTarget", useUnmergedTree = true)
+            .fetchSemanticsNode()
+        val gridTop = gridNode.boundsInRoot.top
+        val rowHeightPx = gridNode.size.height / 34f
+        val targetRootY = gridTop + 10 * rowHeightPx
+
+        val blockNode = composeRule.onNodeWithTag("ScheduleBlock-100", useUnmergedTree = true)
+            .fetchSemanticsNode()
+        val blockRootTop = blockNode.boundsInRoot.top
+        val localTargetY = targetRootY - blockRootTop
+
+        composeRule.onNodeWithTag("ScheduleBlock-100", useUnmergedTree = true).performTouchInput {
+            down(center)
+            moveTo(Offset(center.x, localTargetY), delayMillis = 800L)
+            up()
+        }
+
+        composeRule.waitForIdle()
+
+        val result = captured.get()
+        assertThat(result).isNotNull
+        assertThat(result!!.first).isEqualTo(10L)
+        // 落在第 10 行 → 11:00 = 660，时长 15 → end = 675（不能是 690）
+        assertThat(result.second).isEqualTo(660)
+        assertThat(result.third).isEqualTo(675)
+    }
+
+    /**
+     * 拖拽预览层：已排项块拖到空区域时，格栅内应出现半透明幽灵块，
+     * 显示目标起止时间（与实际落点一致）。
+     *
+     * 幽灵块仅在 down→up 之间可见，故把手势拆成两个 performTouchInput 块：
+     * 第一个块 down+moveTo（触发长按并移到目标），中间断言幽灵块，
+     * 第二个块 up() 结束拖拽。
+     */
+    @Test
+    fun dragBlock_overGrid_showsGhostPreview() {
+        composeRule.setContent {
+            ZhixingTheme {
+                DaySchedulePage(
+                    date = "2026-07-09",
+                    scheduleItems = listOf(
+                        ScheduleItem(
+                            id = 100,
+                            subprojectId = 10,
+                            taskId = 100,
+                            subprojectTitle = "写论文",
+                            startTime = 540,   // 09:00
+                            endTime = 600,     // 10:00, 时长 60
+                        ),
+                    ),
+                    backlogItems = emptyList(),
+                )
+            }
+        }
+
+        composeRule.waitForIdle()
+
+        val gridNode = composeRule.onNodeWithTag("ScheduleDropTarget", useUnmergedTree = true)
+            .fetchSemanticsNode()
+        val gridTop = gridNode.boundsInRoot.top
+        val rowHeightPx = gridNode.size.height / 34f
+        // 第 10 行 = 11:00 = 660
+        val targetRootY = gridTop + 10 * rowHeightPx
+
+        val blockNode = composeRule.onNodeWithTag("ScheduleBlock-100", useUnmergedTree = true)
+            .fetchSemanticsNode()
+        val localTargetY = targetRootY - blockNode.boundsInRoot.top
+
+        // 1) 按下 + 移动（触发长按，dragState 被置为被拖块）
+        composeRule.onNodeWithTag("ScheduleBlock-100", useUnmergedTree = true).performTouchInput {
+            down(center)
+            moveTo(Offset(center.x, localTargetY), delayMillis = 800L)
+        }
+
+        // 2) 拖拽进行中：幽灵块应显示，时间标签为 "11:00-12:00"（660-720），非冲突
+        val ghost = composeRule.onNodeWithTag("DragGhost", useUnmergedTree = true)
+        ghost.assertIsDisplayed()
+        composeRule.onNodeWithText("11:00-12:00", useUnmergedTree = true).assertIsDisplayed()
+        assertThat(ghost.fetchSemanticsNode().config.getOrNull(ScheduleGhostConflictKey))
+            .isFalse()
+
+        // 3) 松手结束拖拽
+        composeRule.onNodeWithTag("ScheduleBlock-100", useUnmergedTree = true).performTouchInput {
+            up()
+        }
+
+        composeRule.waitForIdle()
+        // 拖拽结束后幽灵块消失
+        composeRule.onAllNodesWithTag("DragGhost").assertCountEquals(0)
+    }
+
+    /**
+     * 拖拽预览层：已排项块拖到同任务已占时段时，幽灵块应切为冲突态
+     * （红色边框，语义属性 isConflict = true），可视化拒绝原因。
+     *
+     * 块 A（subprojectId=10, task 100）已排 09:00-10:00；
+     * 块 B（subprojectId=20, task 100）已排 11:00-12:00。
+     * 把块 A 拖到第 10 行（11:00）→ 与块 B 重叠 → 冲突。
+     */
+    @Test
+    fun dragBlock_intoConflict_turnsGhostConflict() {
+        composeRule.setContent {
+            ZhixingTheme {
+                DaySchedulePage(
+                    date = "2026-07-09",
+                    scheduleItems = listOf(
+                        ScheduleItem(
+                            id = 100,
+                            subprojectId = 10,
+                            taskId = 100,
+                            subprojectTitle = "写论文",
+                            startTime = 540,   // 09:00
+                            endTime = 600,     // 10:00
+                        ),
+                        ScheduleItem(
+                            id = 200,
+                            subprojectId = 20,
+                            taskId = 100,
+                            subprojectTitle = "写摘要",
+                            startTime = 660,   // 11:00
+                            endTime = 720,     // 12:00
+                        ),
+                    ),
+                    backlogItems = emptyList(),
+                )
+            }
+        }
+
+        composeRule.waitForIdle()
+
+        val gridNode = composeRule.onNodeWithTag("ScheduleDropTarget", useUnmergedTree = true)
+            .fetchSemanticsNode()
+        val gridTop = gridNode.boundsInRoot.top
+        val rowHeightPx = gridNode.size.height / 34f
+        // 第 10 行 = 11:00 = 660（块 B 所在行）
+        val targetRootY = gridTop + 10 * rowHeightPx
+
+        val blockNode = composeRule.onNodeWithTag("ScheduleBlock-100", useUnmergedTree = true)
+            .fetchSemanticsNode()
+        val localTargetY = targetRootY - blockNode.boundsInRoot.top
+
+        composeRule.onNodeWithTag("ScheduleBlock-100", useUnmergedTree = true).performTouchInput {
+            down(center)
+            moveTo(Offset(center.x, localTargetY), delayMillis = 800L)
+        }
+
+        val ghost = composeRule.onNodeWithTag("DragGhost", useUnmergedTree = true)
+        ghost.assertIsDisplayed()
+        // 幽灵块覆在块 B 之上（11:00-12:00）：真实块 B + 幽灵块共 2 个该时间文本。
+        composeRule.onAllNodesWithText("11:00-12:00").assertCountEquals(2)
+        // 因与块 B 重叠而处于冲突态
+        assertThat(ghost.fetchSemanticsNode().config.getOrNull(ScheduleGhostConflictKey))
+            .isTrue()
+
+        composeRule.onNodeWithTag("ScheduleBlock-100", useUnmergedTree = true).performTouchInput {
+            up()
+        }
+
+        composeRule.waitForIdle()
     }
 
     /**

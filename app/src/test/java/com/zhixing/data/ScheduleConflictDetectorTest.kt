@@ -2,6 +2,7 @@ package com.zhixing.data
 
 import com.zhixing.data.entity.ScheduleEntity
 import com.zhixing.data.entity.SubprojectEntity
+import com.zhixing.ui.ScheduleItem
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.Test
 
@@ -84,5 +85,67 @@ class ScheduleConflictDetectorTest {
             existingSchedules = existing, subprojects = subprojects,
         )
         assertThat(result).isTrue()
+    }
+
+    // ---- List<ScheduleItem> 重载（面向 UI 预览层）----
+
+    /** 用 schedule_items 的子集（已含 taskId）构造一条已排项，与现有 ScheduleEntity 测试同语义。 */
+    private fun item(
+        id: Long,
+        subprojectId: Long,
+        taskId: Long,
+        start: Int,
+        end: Int,
+    ) = ScheduleItem(
+        id = id,
+        subprojectId = subprojectId,
+        subprojectTitle = "",
+        startTime = start,
+        endTime = end,
+        taskId = taskId,
+    )
+
+    @Test
+    fun `item-overload same task overlap is conflict`() {
+        // subprojectId=2（taskId=100）已排 9:00-10:00；subprojectId=1（同 task）排 9:00-10:00 → 冲突
+        val existing = listOf(item(10, 2, 100, 540, 600))
+        assertThat(
+            ScheduleConflictDetector.hasConflict(
+                subprojectId = 1, taskId = 100, startTime = 540, endTime = 600, existing = existing,
+            ),
+        ).isTrue()
+    }
+
+    @Test
+    fun `item-overload different task overlap is not conflict`() {
+        // taskId=200 块占 9:00-10:00；taskId=100 排同一时段 → 跨任务允许
+        val existing = listOf(item(10, 3, 200, 540, 600))
+        assertThat(
+            ScheduleConflictDetector.hasConflict(
+                subprojectId = 1, taskId = 100, startTime = 540, endTime = 600, existing = existing,
+            ),
+        ).isFalse()
+    }
+
+    @Test
+    fun `item-overload excludes self by subprojectId`() {
+        // 同一块（subprojectId=1, task 100）与自己比较 → 不冲突
+        val existing = listOf(item(10, 1, 100, 540, 600))
+        assertThat(
+            ScheduleConflictDetector.hasConflict(
+                subprojectId = 1, taskId = 100, startTime = 540, endTime = 600, existing = existing,
+            ),
+        ).isFalse()
+    }
+
+    @Test
+    fun `item-overload adjacent slots are not conflict`() {
+        // 同 task 已排 9:00-10:00；新块 10:00-11:00（紧邻）→ 不冲突
+        val existing = listOf(item(10, 2, 100, 540, 600))
+        assertThat(
+            ScheduleConflictDetector.hasConflict(
+                subprojectId = 1, taskId = 100, startTime = 600, endTime = 660, existing = existing,
+            ),
+        ).isFalse()
     }
 }

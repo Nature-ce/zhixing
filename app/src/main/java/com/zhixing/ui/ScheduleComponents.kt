@@ -11,6 +11,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -67,6 +68,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.SemanticsPropertyKey
 import androidx.compose.ui.semantics.SemanticsPropertyReceiver
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
@@ -529,3 +531,44 @@ internal fun ScheduleBlock(
         }
     }
 }
+
+/**
+ * 拖拽预览幽灵块：覆在格栅目标位置上，半透明显示落点与时长。
+ *
+ * 正常态用 [MaterialTheme.colorScheme.primary]，冲突态切 [MaterialTheme.colorScheme.error]（红）——
+ * 形状不变仅变色，色盲可辨。绝对定位由调用方算好 [yPx]/[hPx]（像素），
+ * 与 [ScheduleBlock] 同坐标系，从而精确对齐。
+ */
+@Composable
+internal fun DragGhost(
+    yPx: Float,
+    hPx: Float,
+    startTime: Int,
+    endTime: Int,
+    isConflict: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val color = if (isConflict) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+    Box(
+        modifier = modifier
+            .offset(y = yPx.dp)
+            .height(hPx.dp)
+            .fillMaxWidth()
+            .background(color.copy(alpha = 0.12f), RoundedCornerShape(LocalZhixingRadii.current.sm))
+            .border(1.dp, color, RoundedCornerShape(LocalZhixingRadii.current.sm))
+            .testTag("DragGhost")
+            // 暴露冲突态供测试断言（颜色断言在 instrumented 里不稳定，语义属性更可靠）。
+            .semantics { this.isConflict = isConflict },
+    ) {
+        Text(
+            text = formatTimeRange(startTime, endTime),
+            style = MaterialTheme.typography.labelSmall,
+            color = color,
+            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+        )
+    }
+}
+
+/** 语义标记：拖拽预览幽灵块是否处于冲突态（落点与同任务已排项重叠）。 */
+val ScheduleGhostConflictKey = SemanticsPropertyKey<Boolean>("ScheduleGhostConflict")
+var SemanticsPropertyReceiver.isConflict by ScheduleGhostConflictKey

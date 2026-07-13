@@ -15,6 +15,8 @@ data class ScheduleItem(
     val subprojectStatus: String = "",
     val isOverdue: Boolean = false,
     val date: String = "",
+    // 所属任务的 id，供预览层做同任务冲突判断（无需穿透 subprojects 列表）。
+    val taskId: Long = 0L,
 )
 
 /**
@@ -49,6 +51,7 @@ object ScheduleListComposer {
                     subprojectStatus = sub?.status ?: "",
                     isOverdue = overdue,
                     date = entity.date,
+                    taskId = sub?.taskId ?: 0L,
                 )
             }
     }

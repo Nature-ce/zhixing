@@ -1,5 +1,7 @@
 package com.zhixing.data
 
+import com.zhixing.data.entity.ScheduleEntity
+import com.zhixing.data.entity.SubprojectEntity
 import com.zhixing.ui.ScheduleTimeGrid
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.Test
@@ -29,10 +31,64 @@ class DropScheduleCalculatorTest {
     }
 
     @Test
-    fun `drop in middle of row snaps to that row`() {
-        // 第 6 行中段 y = 6*48 + 10 = 298 → 仍应吸附为 09:00 = 540（向下取整到本行顶）
-        val y = 6 * rowHeight + 10f
-        assertThat(DropScheduleCalculator.minuteFromY(y, rowHeight, grid)).isEqualTo(540)
+    fun `drop at 09_05 within row snaps to 09_05`() {
+        // 第 6 行（09:00）内、对应 09:05 的位置：y = 6*48 + (5/30)*48 = 288 + 8 = 296
+        // 吸附到最近 5 分钟 → 545 = 09:05（不再是 09:00）
+        val y = 6 * rowHeight + (5f / grid.granularityMinutes) * rowHeight
+        assertThat(DropScheduleCalculator.minuteFromY(y, rowHeight, grid)).isEqualTo(545)
+    }
+
+    /**
+     * 用户场景：20 分钟块已排在 7:30-7:50，拖 40 分钟块到 7:50 处。
+     * 7:50 = 470 分钟，对应 y = (470-360)/30 * 48 = 176px。
+     * 应吸附到 470（7:50），而非旧实现的 450（7:30，30 分钟取整）。
+     */
+    @Test
+    fun `drop at 07_50 snaps to 07_50 not 07_30`() {
+        // 07:50 = 470 分钟 → y = (470 - 360) / 30 * 48 = 176px
+        val y = ((470 - 360).toFloat() / grid.granularityMinutes) * rowHeight
+        assertThat(DropScheduleCalculator.minuteFromY(y, rowHeight, grid)).isEqualTo(470)
+    }
+
+    /**
+     * 集成证明（用户完整场景）：
+     * 已有 20 分钟块 7:30-7:50（同任务），把 40 分钟块拖到 7:50。
+     *
+     * 拖拽路径：slotFromDrop 在 7:50 落点吸附得 470-510；
+     * 冲突检测：与已有 [450,470) 半开区间相接但不重叠 → 不冲突，拖放应成功。
+     *
+     * 旧实现（30 分钟吸附）会落到 450-490 → 与 [450,470) 重叠 → 假冲突拒绝。
+     */
+    @Test
+    fun `drag 40min block to 07_50 adjacent to existing 20min block does not conflict`() {
+        val yAt07_50 = ((470 - 360).toFloat() / grid.granularityMinutes) * rowHeight
+        val slot = DropScheduleCalculator.slotFromDrop(yAt07_50, rowHeight, grid, 40)
+        assertThat(slot).isEqualTo(ScheduleSlot(470, 510))
+
+        // 已有同任务的 20 分钟块 7:30-7:50
+        val existing = listOf(
+            ScheduleEntity(id = 1, subprojectId = 1, date = "2026-07-09", startTime = 450, endTime = 470, createdAt = 1),
+        )
+        val subprojects = listOf(
+            SubprojectEntity(id = 1, taskId = 100, title = "已有块"),
+            SubprojectEntity(id = 2, taskId = 100, title = "新块"),
+        )
+        val conflict = ScheduleConflictDetector.hasConflict(
+            subprojectId = 2, date = "2026-07-09",
+            startTime = slot.start, endTime = slot.end,
+            existingSchedules = existing, subprojects = subprojects,
+        )
+        // 半开区间 [450,470) 与 [470,510) 相接不重叠 → 不冲突
+        assertThat(conflict).isFalse()
+    }
+
+    @Test
+    fun `drop between 5 minute marks rounds to nearest`() {
+        // 09:06 (546) → 靠近 09:05，四舍五入 → 545；09:09 (549) → 靠近 09:10 → 550
+        val y6 = ((546 - 360).toFloat() / grid.granularityMinutes) * rowHeight
+        val y9 = ((549 - 360).toFloat() / grid.granularityMinutes) * rowHeight
+        assertThat(DropScheduleCalculator.minuteFromY(y6, rowHeight, grid)).isEqualTo(545)
+        assertThat(DropScheduleCalculator.minuteFromY(y9, rowHeight, grid)).isEqualTo(550)
     }
 
     @Test
@@ -42,9 +98,9 @@ class DropScheduleCalculatorTest {
 
     @Test
     fun `y beyond bottom clamps to last startable minute`() {
-        // 底端之外 → 贴到最后一起始分钟（endMinute - granularity = 1380 - 30 = 1350 = 22:30）
+        // 底端之外 → 贴到最后一起始分钟（endMinute - 5 = 1380 - 5 = 1375 = 22:55）
         val y = grid.rowCount * rowHeight + 100f
-        assertThat(DropScheduleCalculator.minuteFromY(y, rowHeight, grid)).isEqualTo(1350)
+        assertThat(DropScheduleCalculator.minuteFromY(y, rowHeight, grid)).isEqualTo(1375)
     }
 
     @Test
