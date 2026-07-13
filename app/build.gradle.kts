@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -19,9 +21,23 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    // 签名配置从 local.properties 读取：密码不进版本库，构建时动态注入
+    signingConfigs {
+        create("release") {
+            val props = Properties()
+            rootProject.file("local.properties").inputStream().use { input -> props.load(input) }
+            storeFile = rootProject.file(props.getProperty("ZHIXING_KEYSTORE_FILE") ?: "app/zhixing-release.keystore")
+            storePassword = props.getProperty("ZHIXING_STORE_PASSWORD") ?: ""
+            keyAlias = props.getProperty("ZHIXING_KEY_ALIAS") ?: "zhixing"
+            keyPassword = props.getProperty("ZHIXING_KEY_PASSWORD") ?: ""
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
+            // 已签名 release 包：密码通过 local.properties 注入，不进版本库
+            signingConfig = signingConfigs.getByName("release")
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             // 默认值留空：UI 输入框不预填假占位，与 debug 保持一致。
             buildConfigField("String", "DECOMPOSE_BASE_URL", "\"\"")
